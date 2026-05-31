@@ -1092,6 +1092,20 @@ app.post('/api/tunnel/devtunnel/login/dismiss', asyncH(async (_req, res) => {
   tunnel.clearDevtunnelLogin();
   res.json({ ok: true });
 }));
+// Wipe the persisted devtunnel tunnel id (and the remote tunnel
+// resource itself, best-effort) so the next /api/tunnel/start mints
+// a fresh one. Used by the Reset button in the Remote page when the
+// user wants to rotate the public URL. Tunnel must be stopped first
+// — refuse otherwise so we don't yank state out from under a live
+// `devtunnel host` child.
+app.post('/api/tunnel/devtunnel/reset', asyncH(async (_req, res) => {
+  const s = await tunnel.status();
+  if (s.running && s.provider === 'devtunnel') {
+    return res.status(409).json({ error: 'stop the tunnel before resetting its id' });
+  }
+  const r = await tunnel.resetDevtunnelTunnelId();
+  res.json({ ok: true, ...r, ...(await tunnel.status()) });
+}));
 
 // ---- devices ----
 //
@@ -1555,6 +1569,12 @@ function openInBrowser(url) {
   // a slow Import dialog cold-open. Fire in the background; the lib also
   // starts its own 15s refresh loop.
   try { localCliSessions.prewarmLivePids(['claude.exe']); } catch {}
+  // Prewarm tunnel provider probe. First /api/tunnel/status round-trip
+  // shells out to where.exe / --version / devtunnel user show — ~700ms
+  // of synchronous work that the user otherwise waits on the moment
+  // they open the Remote tab. Fire in the background here so the cache
+  // is warm by the time anyone clicks.
+  try { tunnel.probe(true).catch(() => {}); } catch {}
 
   if (webTerminal.available) {
     let WebSocketServer;

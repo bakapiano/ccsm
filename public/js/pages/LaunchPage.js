@@ -21,7 +21,32 @@ import { BrandMark, IconTerminal, IconFolder, IconFolderOpen, IconBranch, IconCh
 const ROOT_ID = 'newSessionProgress';
 const selectedRepos = signal(new Set());
 
-function initRepoSelection(repos) {
+// Persist the user's last Launch picks (CLI / folder / mode / cwd /
+// selected repos) so the form stays as they left it across reloads
+// and tab switches. localStorage is best-effort — any access failure
+// falls back silently.
+const LS_KEY = 'ccsm.launch-state';
+function loadLaunchState() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    const j = JSON.parse(raw);
+    if (j && typeof j === 'object') return j;
+  } catch {}
+  return null;
+}
+function saveLaunchState(s) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {}
+}
+
+function initRepoSelection(repos, override) {
+  if (override && Array.isArray(override)) {
+    // Only honour names that still exist in the user's repo list;
+    // anything else was deleted between sessions.
+    const valid = new Set(repos.map((r) => r.name));
+    selectedRepos.value = new Set(override.filter((n) => valid.has(n)));
+    return;
+  }
   const want = new Set(repos.filter((r) => r.defaultSelected).map((r) => r.name));
   selectedRepos.value = want;
 }
@@ -31,11 +56,15 @@ function LaunchHero() {
   const clis = cfg.clis || [];
   const repos = cfg.repos || [];
   const defaultCli = cfg.defaultCliId || clis[0]?.id || '';
+  const saved = loadLaunchState();
 
-  const [cliId, setCliId] = useState(defaultCli);
-  const [folderId, setFolderId] = useState('');
-  const [mode, setMode] = useState('auto'); // 'auto' = workspace + repos, 'cwd' = pick existing dir
-  const [cwd, setCwd] = useState(''); // only used when mode === 'cwd'
+  // Initial values pull from localStorage first (last-used picks),
+  // then fall back to config defaults. cliId is validated below in
+  // the useEffect once `clis` arrives.
+  const [cliId, setCliId] = useState(saved?.cliId || defaultCli);
+  const [folderId, setFolderId] = useState(saved?.folderId || '');
+  const [mode, setMode] = useState(saved?.mode === 'cwd' ? 'cwd' : 'auto');
+  const [cwd, setCwd] = useState(saved?.cwd || ''); // only used when mode === 'cwd'
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [openPicker, setOpenPicker] = useState(null); // 'cli' | 'folder' | 'workdir' | null
@@ -50,6 +79,22 @@ function LaunchHero() {
     }
   }, [defaultCli, clis.length]);
 
+  // Validate the persisted folder id against the live folders list
+  // — folders deleted between sessions snap back to "no folder".
+  useEffect(() => {
+    if (!folderId) return;
+    if (!folders.value.find((f) => f.id === folderId)) setFolderId('');
+  }, [folderId, folders.value.length]);
+
+  // Persist every change. JSON-stringifying a Set isn't useful, so
+  // we materialize selectedRepos to an array here.
+  useEffect(() => {
+    saveLaunchState({
+      cliId, folderId, mode, cwd,
+      repos: [...selectedRepos.value],
+    });
+  }, [cliId, folderId, mode, cwd, selectedRepos.value]);
+
   const folderDnd = useDragSort(
     folders.value.map((f) => f.id),
     async (nextIds) => {
@@ -59,7 +104,7 @@ function LaunchHero() {
   );
 
   const sig = repos.map((r) => r.name + ':' + r.defaultSelected).join('|');
-  useStateOnce(sig, () => initRepoSelection(repos));
+  useStateOnce(sig, () => initRepoSelection(repos, saved?.repos));
 
   const cli = clis.find((c) => c.id === cliId) || clis[0];
   const folder = folders.value.find((f) => f.id === folderId);

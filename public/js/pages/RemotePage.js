@@ -104,6 +104,32 @@ function ProviderTile({ id, label, hint, icon, selected, disabled, onSelect }) {
     </button>`;
 }
 
+// Tiny inline row shown under the signed-in Microsoft Dev Tunnel
+// status. Displays the persisted (named) tunnel id ccsm reuses across
+// restarts so the public URL stays stable — and lets the user rotate
+// it on demand. Reset requires the tunnel to be stopped first; the
+// server-side route also enforces this.
+function DevtunnelTunnelIdRow({ tunnelId, running, onReset }) {
+  if (!tunnelId) {
+    return html`
+      <div class="tunnel-id-row is-empty">
+        <span class="tunnel-id-label">Tunnel id</span>
+        <span class="tunnel-id-value-empty">none yet · minted on next Start</span>
+      </div>`;
+  }
+  return html`
+    <div class="tunnel-id-row">
+      <span class="tunnel-id-label">Tunnel id</span>
+      <code class="tunnel-id-value" title="Stable public URL identifier · reused across restarts">${tunnelId}</code>
+      <button type="button" class="action subtle small tunnel-id-reset"
+              disabled=${running}
+              title=${running ? 'Stop the tunnel first' : 'Mint a fresh tunnel id (public URL will change)'}
+              onClick=${onReset}>
+        <${IconRecycle} /> Reset
+      </button>
+    </div>`;
+}
+
 function ProviderStatus({ id, info, onInstall, onLogin, loggingIn }) {
   if (!info) return html`<span class="provider-status-muted">probing…</span>`;
   if (!info.installed) {
@@ -261,9 +287,26 @@ function DevtunnelLoginPanel({ login, onCancel, onDismiss, onRetry }) {
 
 export function RemotePage() {
   clockTick.value; // re-tick fmtAgo "last seen" labels
-  const [status, setStatus] = useState(null);
-  const [provider, setProvider] = useState('cloudflared');
-  const [token, setTokenLocal] = useState('');
+  // Hydrate from a localStorage cache so the page renders the same
+  // shape it had at the end of the previous visit — provider tiles,
+  // signed-in state, tunnel id, share URL — instead of empty / placeholder
+  // chrome that fills in after the slow /api/tunnel/status round-trip
+  // (700ms+ on a cold probe). The cached snapshot is overwritten by
+  // refresh() the moment the live response lands.
+  const cachedStatus = (() => {
+    try {
+      const raw = localStorage.getItem('ccsm.remote-status-cache');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  })();
+  const [status, setStatus] = useState(cachedStatus);
+  const [provider, setProvider] = useState(() => {
+    if (cachedStatus?.running && cachedStatus?.provider) return cachedStatus.provider;
+    if (cachedStatus?.providers?.devtunnel?.installed) return 'devtunnel';
+    if (cachedStatus?.providers?.cloudflared?.installed) return 'cloudflared';
+    return 'devtunnel';
+  });
+  const [token, setTokenLocal] = useState(cachedStatus?.token || '');
   const [busy, setBusy] = useState(false);
   const [deviceList, setDeviceList] = useState([]);
   const pollRef = useRef(null);
@@ -280,10 +323,17 @@ export function RemotePage() {
       setProvider((cur) => {
         if (s.running && s.provider) return s.provider;
         if (cur) return cur;
-        if (s.providers?.cloudflared?.installed) return 'cloudflared';
         if (s.providers?.devtunnel?.installed) return 'devtunnel';
-        return cur || 'cloudflared';
+        if (s.providers?.cloudflared?.installed) return 'cloudflared';
+        return cur || 'devtunnel';
       });
+      // Snapshot for the next mount. Skip the per-call `log` so the
+      // cache stays small.
+      try {
+        localStorage.setItem('ccsm.remote-status-cache', JSON.stringify({
+          ...s, log: undefined,
+        }));
+      } catch {}
     } catch (e) { setToast(`status load failed · ${e.message}`, 'error'); }
   }
 
@@ -400,6 +450,18 @@ export function RemotePage() {
     try { await api('POST', '/api/tunnel/devtunnel/login/dismiss'); refresh(); }
     catch (e) { setToast(`dismiss failed · ${e.message}`, 'error'); }
   }
+  async function onResetDevtunnelId() {
+    const ok = await ccsmConfirm(
+      `Mint a fresh tunnel id? The public URL changes — every approved remote device will need to re-register on the new URL. Any existing share links stop working.`,
+      { title: 'Reset Microsoft Dev Tunnel id', okLabel: 'Reset', danger: true },
+    );
+    if (!ok) return;
+    try {
+      await api('POST', '/api/tunnel/devtunnel/reset');
+      refresh();
+      setToast('Tunnel id reset · next Start mints a fresh one', 'ok');
+    } catch (e) { setToast(`reset failed · ${e.message}`, 'error'); }
+  }
 
   const running = status?.running;
   const url     = status?.url;
@@ -426,30 +488,21 @@ export function RemotePage() {
           <div class="field">
             <span class="label">Provider</span>
             <div class="provider-tile-row">
-              <${ProviderTile} id="cloudflared" label="Cloudflare Tunnel"
-                hint="Anonymous · no login"
-                icon=${html`<${IconCloudflareColor} size=${32} />`}
-                selected=${provider === 'cloudflared'}
-                disabled=${running}
-                onSelect=${setProvider} />
               <${ProviderTile} id="devtunnel" label="Microsoft Dev Tunnel"
                 hint="Requires sign-in"
                 icon=${html`<${IconMicrosoftColor} size=${32} />`}
                 selected=${provider === 'devtunnel'}
                 disabled=${running}
                 onSelect=${setProvider} />
+              <${ProviderTile} id="cloudflared" label="Cloudflare Tunnel"
+                hint="Anonymous · no login"
+                icon=${html`<${IconCloudflareColor} size=${32} />`}
+                selected=${provider === 'cloudflared'}
+                disabled=${running}
+                onSelect=${setProvider} />
             </div>
             ${running ? html`<span class="hint">Stop the tunnel to switch provider.</span>` : null}
           </div>
-          ${provider === 'cloudflared' ? html`
-            <div class="field">
-              <span class="label">Cloudflare Tunnel</span>
-              <div class="remote-status-line">
-                <${ProviderStatus} id="cloudflared" info=${cf}
-                  onInstall=${() => onInstall('cloudflared')} />
-              </div>
-            </div>
-          ` : null}
           ${provider === 'devtunnel' ? html`
             <div class="field">
               <span class="label">Microsoft Dev Tunnel</span>
@@ -466,6 +519,21 @@ export function RemotePage() {
                   onDismiss=${onLoginDismiss}
                   onRetry=${() => onLogin('devtunnel')} />
               ` : null}
+              ${dt?.loggedIn ? html`
+                <${DevtunnelTunnelIdRow}
+                  tunnelId=${status?.tunnelId}
+                  running=${running && status?.provider === 'devtunnel'}
+                  onReset=${onResetDevtunnelId} />
+              ` : null}
+            </div>
+          ` : null}
+          ${provider === 'cloudflared' ? html`
+            <div class="field">
+              <span class="label">Cloudflare Tunnel</span>
+              <div class="remote-status-line">
+                <${ProviderStatus} id="cloudflared" info=${cf}
+                  onInstall=${() => onInstall('cloudflared')} />
+              </div>
             </div>
           ` : null}
         </div>

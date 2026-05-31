@@ -137,8 +137,26 @@ export function TerminalView({ terminalId, cliType }) {
 
     const host = hostRef.current;
     term.open(host);
-    // Defer fit one tick so the container has measured layout
-    requestAnimationFrame(() => { try { fit.fit(); } catch {} });
+    // Robust fit scheduler. A single requestAnimationFrame works most
+    // of the time but races on tab/session switches: the .tab-panel
+    // just flipped from display:none to display:flex and although the
+    // browser has laid the element out by the next frame, xterm's
+    // canvas measurement occasionally still reports the pre-display
+    // size (Chromium quirk — the WebGL renderer caches its viewport
+    // before the layout flush propagates through ResizeObserver).
+    // Result: visible "wrong cols/rows until I resize the window" bug.
+    // Spraying fits at 0 / one rAF / 60ms / 200ms covers every
+    // measurement-arrival path without being expensive — fit.fit() is
+    // a no-op when cols/rows match the previous call.
+    const scheduleFit = () => {
+      try { fit.fit(); } catch {}
+      requestAnimationFrame(() => {
+        try { fit.fit(); } catch {}
+        setTimeout(() => { try { fit.fit(); } catch {} }, 60);
+        setTimeout(() => { try { fit.fit(); } catch {} }, 200);
+      });
+    };
+    scheduleFit();
     termRef.current = term;
 
     // Browser WS API can't set Authorization headers — token + device
@@ -163,7 +181,7 @@ export function TerminalView({ terminalId, cliType }) {
       // wrapped at 80 cols, and the follow-up resize from the rAF fit
       // wouldn't reflow the already-emitted bytes. Visible as squeezed
       // text on every session switch.
-      try { fit.fit(); } catch {}
+      scheduleFit();
       ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
     };
     ws.onmessage = (ev) => {
@@ -202,6 +220,20 @@ export function TerminalView({ terminalId, cliType }) {
     const ro = new ResizeObserver(() => { try { fit.fit(); } catch {} });
     ro.observe(hostRef.current);
 
+    // Mobile soft-keyboard resize. When the IME slides up on iOS /
+    // Android, the layout viewport doesn't change but `visualViewport`
+    // does — the page now has less vertical room before the keyboard
+    // covers the bottom. xterm's host element keeps its old layout
+    // height (we use 100vh-derived sizing) so half the terminal sits
+    // behind the keyboard with no resize callback fired. Listening
+    // here covers it: any visualViewport size change triggers a fit
+    // so the cell grid matches the visible area. Cheap; fit.fit() is
+    // a no-op when nothing changed.
+    const vv = window.visualViewport;
+    const onVisualResize = () => scheduleFit();
+    vv?.addEventListener?.('resize', onVisualResize);
+    vv?.addEventListener?.('scroll', onVisualResize);
+
     // Tab-switch refresh. The terminal lives inside a .tab-panel which gets
     // display:none when another tab is active. WebGL renderers keep a glyph
     // texture atlas in GPU memory; when the canvas hides + redisplays at a
@@ -217,7 +249,7 @@ export function TerminalView({ terminalId, cliType }) {
         if (panel.hasAttribute('data-active')) {
           requestAnimationFrame(() => {
             try { term.clearTextureAtlas?.(); } catch {}
-            try { fit.fit(); } catch {}
+            scheduleFit();
             try { term.refresh(0, term.rows - 1); } catch {}
           });
         }
@@ -377,6 +409,8 @@ export function TerminalView({ terminalId, cliType }) {
       }
       ro.disconnect();
       if (panelMo) panelMo.disconnect();
+      vv?.removeEventListener?.('resize', onVisualResize);
+      vv?.removeEventListener?.('scroll', onVisualResize);
       try { ws.close(); } catch {}
       try { term.dispose(); } catch {}
       termRef.current = null;
