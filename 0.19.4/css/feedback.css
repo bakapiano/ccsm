@@ -1,0 +1,490 @@
+/* Page-actions CTA banner · server-status pill · toast ·
+   dirty-banner + save-pulse for unsaved settings */
+
+/* CTA-style banner — neutral surface, ink left bar, distinct from .card
+   so it reads as "tip / shortcut" rather than another data section */
+.page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-5);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: none;
+  position: relative;
+}
+.page-actions::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 2px;
+  background: var(--ink);
+  border-radius: 0 2px 2px 0;
+}
+.page-actions-hint {
+  font-size: 13px;
+  color: var(--ink-mid);
+  font-weight: 500;
+  padding-left: var(--s-2);
+}
+.page-actions .action svg { stroke-width: 2; }
+
+/* "Refresh · 12s ago" timestamp inside the top-right Refresh button */
+.refresh-ago {
+  margin-left: 6px;
+  padding-left: 7px;
+  border-left: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Top-right page-head-meta · server-status pill + Refresh button share
+   the same height, padding, font-size and pill shape so they read as a
+   coherent control group. Explicit min-height keeps them aligned even
+   though they use different fonts and one carries an icon. */
+.page-head-meta { align-items: center; }
+.page-head-meta .action.small,
+.page-head-meta .server-status {
+  min-height: 28px;
+  border-radius: 999px;
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+/* "● online v0.5.0" pill in top-right page-head-meta */
+.server-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--ink-mid);
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+  cursor: default;
+}
+.server-status .status-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  flex: 0 0 7px;
+  position: relative;
+}
+.server-status[data-state="online"] {
+  border-color: rgba(74, 138, 74, 0.35);
+  background: rgba(74, 138, 74, 0.06);
+  color: var(--green);
+}
+.server-status[data-state="online"] .status-pulse {
+  background: var(--green);
+  animation: server-pulse 2.2s ease-in-out infinite;
+}
+.server-status[data-state="offline"] {
+  border-color: rgba(183, 63, 63, 0.4);
+  background: rgba(183, 63, 63, 0.06);
+  color: var(--red);
+}
+.server-status[data-state="offline"] .status-pulse { background: var(--red); }
+.server-status[data-state="connecting"] {
+  border-color: rgba(196, 137, 43, 0.4);
+  background: rgba(196, 137, 43, 0.06);
+  color: var(--yellow);
+}
+.server-status[data-state="connecting"] .status-pulse {
+  background: var(--yellow);
+  animation: server-pulse 1s ease-in-out infinite;
+}
+@keyframes server-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; }
+  50%      { box-shadow: 0 0 0 4px transparent; }
+}
+
+/* Offline banner · shown when /api/health is unreachable. Sticks to the
+   top of the main column above all cards. Contains a ccsm:// link that
+   asks Windows to spawn the backend. */
+/* Offline overlay — full-screen modal that blocks all interaction
+   until the backend comes back. Z-index above dialogs / toasts. */
+.offline-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(26, 24, 21, 0.55);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-6);
+  animation: panel-in .2s ease-out;
+}
+.offline-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--r-lg);
+  box-shadow: 0 24px 60px -20px rgba(0,0,0,0.4);
+  padding: var(--s-8) var(--s-8) var(--s-6);
+  max-width: 480px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+}
+.offline-brand {
+  width: 56px;
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.offline-brand svg { width: 100%; height: 100%; }
+.offline-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+.offline-copy {
+  margin: 0;
+  color: var(--ink-mid);
+  font-size: 13.5px;
+  line-height: 1.55;
+  max-width: 380px;
+}
+.offline-actions {
+  margin-top: var(--s-2);
+}
+.offline-actions .action.big {
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 500;
+}
+/* 4-digit identification code block on the pending-approval overlay.
+   The code matches what the host operator sees in the Remote page
+   alongside this pending request — visual confirmation they're
+   approving the right device. */
+.offline-code-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--s-3);
+  padding: var(--s-3) var(--s-5);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.offline-code-label {
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.offline-code {
+  font-family: var(--mono);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.offline-code-hint {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+/* RestartOverlay — small top-of-viewport pill (not fullscreen) while
+   a user-initiated backend restart is in flight. Slides down from the
+   top, slides out on dismiss. Pinned center so it survives PWA WCO /
+   standalone window-control overlays without bumping into them. */
+.restart-banner {
+  position: fixed;
+  top: env(titlebar-area-height, 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+  animation: restart-banner-in .18s ease-out;
+}
+@keyframes restart-banner-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.restart-banner-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: restart-spin 0.7s linear infinite;
+}
+.restart-banner-text { white-space: nowrap; }
+@keyframes restart-spin { to { transform: rotate(360deg); } }
+.offline-fallback {
+  margin-top: var(--s-3);
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-mid);
+}
+.offline-fallback summary {
+  cursor: pointer;
+  text-align: center;
+  color: var(--ink-muted);
+}
+.offline-fallback-body {
+  margin-top: var(--s-3);
+  padding: var(--s-3);
+  background: var(--bg);
+  border-radius: var(--r-sm);
+}
+.offline-fallback-body pre {
+  margin: var(--s-2) 0;
+  padding: 8px 10px;
+  background: var(--ink);
+  color: var(--bg-elev);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-x: auto;
+}
+.offline-fallback-body p { margin: 0; }
+
+/* Legacy banner styles (unused after v1.0 redesign but kept tiny in
+   case external CSS references them). */
+.offline-banner { display: none; }
+
+/* Toast bottom-right — auto-hides via JS */
+.toast {
+  position: fixed;
+  bottom: var(--s-5);
+  right: var(--s-5);
+  z-index: 100;
+  max-width: 380px;
+  padding: 11px 16px 11px 14px;
+  background: var(--ink);
+  color: var(--bg);
+  border: 0;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+  transform-origin: bottom right;
+  transition:
+    opacity .22s cubic-bezier(.4, 0, .2, 1),
+    transform .28s cubic-bezier(.34, 1.4, .64, 1);
+  pointer-events: none;
+  box-shadow:
+    0 10px 32px -8px rgba(26, 24, 21, 0.30),
+    0 2px 6px rgba(26, 24, 21, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.toast::before {
+  content: "OK";
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.75);
+  flex-shrink: 0;
+  line-height: 1;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.toast.error::before {
+  content: "ERR";
+  background: rgba(183, 63, 63, 0.85);
+  color: #fff;
+}
+.toast.ok::before {
+  content: "OK";
+  background: rgba(74, 138, 74, 0.85);
+  color: #fff;
+}
+
+/* Sticky "you have unsaved changes" banner above the Configure card */
+.dirty-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-5);
+  background: var(--bg);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  position: sticky;
+  top: var(--s-3);
+  z-index: 10;
+  box-shadow: 0 3px 10px -8px rgba(26, 24, 21, 0.15);
+  animation: banner-in .25s cubic-bezier(.4, 0, .2, 1);
+}
+@keyframes banner-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.dirty-banner .dirty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink);
+  flex: 0 0 8px;
+  box-shadow: 0 0 0 0 rgba(26, 24, 21, 0.35);
+  animation: dirty-pulse 2s ease-in-out infinite;
+}
+.dirty-banner .dirty-text { flex: 1; }
+
+/* Save button pulse — mirrors dirty banner */
+.action.primary.is-dirty {
+  animation: save-pulse 1.6s ease-in-out infinite;
+}
+@keyframes save-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(26, 24, 21, 0.25); }
+  50%      { box-shadow: 0 0 0 4px rgba(26, 24, 21, 0); }
+}
+
+/* HealthOverlay reuses .offline-overlay / .offline-card above. The
+   only extra is the spinner shown during the "Checking…" phase — sized
+   to fill the .offline-brand slot in place of the BrandMark logo. */
+.health-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: health-spin 0.8s linear infinite;
+}
+@keyframes health-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Keybinding recorder modal ───────────────────────────────────── */
+.kbd-recorder-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(26, 24, 21, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: kbd-rec-fade-in 0.16s ease-out;
+}
+@keyframes kbd-rec-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.kbd-recorder-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px 40px;
+  min-width: 380px;
+  max-width: 520px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  font-family: var(--body);
+}
+.kbd-recorder-label {
+  font-size: 12.5px;
+  color: var(--ink-mid);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.kbd-recorder-action {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin-bottom: 24px;
+}
+.kbd-recorder-keys {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.kbd-recorder-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  animation: kbd-rec-pop 0.12s ease-out;
+}
+@keyframes kbd-rec-pop {
+  from { transform: scale(0.85); opacity: 0.4; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+.kbd-recorder-plus {
+  color: var(--ink-muted);
+  font-size: 14px;
+  font-weight: 300;
+}
+.kbd-recorder-placeholder {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.kbd-recorder-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.kbd-recorder-hint {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+.kbd-recorder-hint kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+}

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="ccsm-frontend-version" content="0.19.4">
+    <!-- maximum-scale=1 stops iOS Safari from auto-zooming the page
+         when the user taps a sub-16px input. xterm's helper textarea
+         inherits the terminal's own font size (11px on phones); if we
+         instead bumped it to 16px via CSS, xterm would measure the
+         cell off the inflated textarea and render every glyph ~50%
+         oversized. Locking page zoom here lets us leave the textarea
+         alone. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <!-- Bleeds the cream surface into the Edge/Chrome --app= title bar
+         so it visually disappears against the body. The browser does
+         honor this in standalone app windows. -->
+    <meta name="theme-color" content="#f6f8fa" />
+    <meta name="color-scheme" content="light" />
+    <title>CCSM</title>
+    <!-- All asset paths are RELATIVE so the same index.html works when
+         served from localhost:7777/ (backend bundle) AND from
+         https://bakapiano.github.io/ccsm/v1/ (GH Pages hosted). -->
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!-- Point at the ROOT manifest (/ccsm/manifest.webmanifest) so the
+         installable PWA is scoped to /ccsm/, covering every per-version
+         subdir. If we shipped a per-version manifest the browser would
+         scope the PWA to /ccsm/X.Y.Z/ — then the version-guard's
+         redirect to ../ on backend upgrade would fall out of scope and
+         the OS would re-show an address bar. -->
+    <link rel="manifest" href="../manifest.webmanifest" />
+    <!-- Apply accent color BEFORE stylesheets/paint to avoid a flash
+         of the default warm-cream tokens.css bg. Mirrors
+         applyAccentCssVars() in state.js. Falls back to the Ocean
+         default (#2f6fa3) when no accent is saved so first-time
+         visitors also see the correct bg from the first frame. -->
+    <script>
+      (function () {
+        try {
+          var hex = localStorage.getItem('ccsm.accent');
+          if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) hex = '#2f6fa3';
+          var n = parseInt(hex.slice(1), 16);
+          var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+          var toHex = function (v) { v = Math.max(0, Math.min(255, Math.round(v))); var s = v.toString(16); return s.length < 2 ? '0' + s : s; };
+          var mix = function (t) { return '#' + toHex(r * t + 255 * (1 - t)) + toHex(g * t + 255 * (1 - t)) + toHex(b * t + 255 * (1 - t)); };
+          var darken = function (a) { return '#' + toHex(r * (1 - a)) + toHex(g * (1 - a)) + toHex(b * (1 - a)); };
+          var bg = mix(0.04);
+          var root = document.documentElement.style;
+          root.setProperty('--accent', hex);
+          root.setProperty('--accent-deep', darken(0.2));
+          root.setProperty('--accent-soft',   'rgba(' + r + ',' + g + ',' + b + ',0.10)');
+          root.setProperty('--accent-softer', 'rgba(' + r + ',' + g + ',' + b + ',0.04)');
+          root.setProperty('--bg', bg);
+          root.setProperty('--sidebar-bg', bg);
+          root.setProperty('--sidebar-hover', mix(0.10));
+          root.setProperty('--sidebar-active', mix(0.15));
+          root.setProperty('--border', mix(0.15));
+          root.setProperty('--border-soft', mix(0.12));
+          root.setProperty('--border-strong', mix(0.25));
+          root.setProperty('--ui-bg', mix(0.10));
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', bg);
+        } catch (_) {}
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&family=JetBrains+Mono:wght@400..600&display=swap"
+    />
+    <link rel="stylesheet" href="./css/tokens.css" />
+    <link rel="stylesheet" href="./css/base.css" />
+    <link rel="stylesheet" href="./css/layout.css" />
+    <link rel="stylesheet" href="./css/sidebar.css" />
+    <link rel="stylesheet" href="./css/cards.css" />
+    <link rel="stylesheet" href="./css/tables.css" />
+    <link rel="stylesheet" href="./css/forms.css" />
+    <link rel="stylesheet" href="./css/widgets.css" />
+    <link rel="stylesheet" href="./css/feedback.css" />
+    <link rel="stylesheet" href="./css/modal.css" />
+    <link rel="stylesheet" href="./css/terminals.css" />
+    <link rel="stylesheet" href="./css/wco.css" />
+    <link rel="stylesheet" href="./css/responsive.css" />
+
+    <script type="importmap">
+      {
+        "imports": {
+          "preact":             "https://esm.sh/preact@10.27.0",
+          "preact/hooks":       "https://esm.sh/preact@10.27.0/hooks",
+          "preact/compat":      "https://esm.sh/preact@10.27.0/compat",
+          "@preact/signals":    "https://esm.sh/@preact/signals@1.3.2?deps=preact@10.27.0",
+          "htm":                "https://esm.sh/htm@3.1.1",
+          "@xterm/xterm":       "https://esm.sh/@xterm/xterm@5.5.0",
+          "@xterm/addon-fit":   "https://esm.sh/@xterm/addon-fit@0.10.0?deps=@xterm/xterm@5.5.0",
+          "@xterm/addon-web-links": "https://esm.sh/@xterm/addon-web-links@0.11.0?deps=@xterm/xterm@5.5.0",
+          "@xterm/addon-clipboard": "https://esm.sh/@xterm/addon-clipboard@0.1.0?deps=@xterm/xterm@5.5.0",
+          "@xterm/addon-webgl": "https://esm.sh/@xterm/addon-webgl@0.18.0?deps=@xterm/xterm@5.5.0"
+        }
+      }
+    </script>
+    <link rel="stylesheet" href="https://esm.sh/@xterm/xterm@5.5.0/css/xterm.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./js/main.js"></script>
+    <script>
+      // Dev hot-reload — only active when the page itself loads from a
+      // local backend (the /api/dev/ping endpoint exists only on a dev
+      // checkout). On the GH Pages copy this skips entirely.
+      if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+        fetch('/api/dev/ping', { cache: 'no-store' }).then((r) => {
+          if (!r.ok) return;
+          const es = new EventSource('/api/dev/reload');
+          es.addEventListener('reload', () => location.reload());
+        }).catch(() => {});
+      }
+    </script>
+  </body>
+</html>

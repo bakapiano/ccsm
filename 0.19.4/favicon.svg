@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- terminal window body -->
+  <rect x="2" y="4" width="28" height="24" rx="3" fill="#1a1815"/>
+  <!-- title bar divider -->
+  <line x1="2" y1="10" x2="30" y2="10" stroke="#faf9f5" stroke-width="0.6" opacity="0.45"/>
+  <!-- traffic-light dots -->
+  <circle cx="6"   cy="7" r="1" fill="#faf9f5"/>
+  <circle cx="9.5" cy="7" r="1" fill="#faf9f5" opacity="0.65"/>
+  <circle cx="13"  cy="7" r="1" fill="#faf9f5" opacity="0.4"/>
+  <!-- ccsm prompt text -->
+  <text x="16" y="19.5"
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-family="'Cascadia Mono', 'Consolas', 'Courier New', monospace"
+        font-weight="700"
+        font-size="10"
+        fill="#faf9f5">ccsm</text>
+</svg>

@@ -1,0 +1,177 @@
+/* App grid · main column · page header · tab panels · footer status line */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  height: 100vh;
+  /* Pin to viewport height (not min-height) — child flex columns set
+     min-height:0 and rely on a bounded parent height to compute their own
+     space. With min-height:100vh, a transient xterm resize that briefly
+     reports a too-large cell count makes the WebGL canvas grow, .session-pane
+     grows to fit, .main grows, .app grows... cascading into a multi-hundred-
+     thousand-pixel tall page. height:100vh caps the cascade. */
+  transition: grid-template-columns .25s cubic-bezier(.4, 0, .2, 1);
+}
+.app:has(.sidebar[data-collapsed="true"]) {
+  grid-template-columns: var(--sidebar-w-collapsed) 1fr;
+}
+/* While dragging the sidebar resize handle, kill the transition so the
+   grid tracks pointermove pixel-for-pixel instead of lagging behind. */
+body.is-resizing-sidebar .app {
+  transition: none;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* grid items default to min-height:auto which lets internal content
+     (eg a misbehaving xterm canvas that briefly reports an absurd height)
+     overflow the grid track and balloon the whole page. min-height:0
+     restores the expected "fit my grid cell" behaviour. */
+  min-height: 0;
+  padding: 0 var(--s-4);
+  gap: var(--s-2);
+  /* .settings-scroll inside uses `margin-right: -var(--s-4)` to bleed
+     past .main's padding so its scrollbar sits flush with the window
+     edge. Without this clip that 16-px bleed propagates up to <body>
+     and shows a permanent horizontal scrollbar on every page. Vertical
+     scrolling stays inside .settings-scroll itself (overflow-y:auto)
+     so this clip doesn't suppress anything legitimate. */
+  overflow-x: hidden;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-8);
+  padding-bottom: var(--s-5);
+  border-bottom: 1px solid var(--border);
+}
+.page-head-inner { min-width: 0; }
+
+.page-title {
+  font-family: var(--display);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.024em;
+  color: var(--ink);
+  line-height: 1.1;
+}
+.page-subtitle {
+  margin-top: 4px;
+  font-size: 13.5px;
+  color: var(--ink-mid);
+}
+
+.page-head-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.ph-stat { display: inline-flex; gap: 6px; align-items: baseline; }
+.ph-key {
+  font-family: var(--body);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.ph-val { color: var(--ink-mid); }
+.ph-divider { color: var(--ink-faint); }
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tab-panel {
+  display: none;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-height: 0;
+}
+.tab-panel[data-active] {
+  display: flex;
+  flex: 1;
+}
+
+/* Per-page title strip — height matches the sidebar collapse-toggle
+   (28px) so the topmost row of the window reads as one unified band.
+   Title on the left, actions slot on the right. The WCO padding-right
+   reservation (wco.css) shifts actions inward so they clear the OS
+   window controls overlay. */
+.page-title-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  /* `max(36px, …)` floors the anti-zoom shrink — at heavy page zoom the
+     counter-scale would otherwise collapse the strip past readable
+     (e.g. 250% zoom → ~16px, title text overlaps the action row). */
+  height: max(36px, calc(40px * var(--anti-zoom, 1)));
+  min-height: max(36px, calc(40px * var(--anti-zoom, 1)));
+  max-height: max(36px, calc(40px * var(--anti-zoom, 1)));
+  flex-shrink: 0;
+  box-sizing: border-box;
+  margin: 0 calc(-1 * var(--s-4)) 0;
+  padding: 0 var(--s-5);
+  /* Replace the hard inset shadow rule with a soft gradient fade — gives
+     the top band a printed-paper masthead feeling rather than a CSS
+     divider. */
+  background:
+    linear-gradient(to bottom, rgba(216, 212, 198, 0.0) 0%, rgba(216, 212, 198, 0.0) calc(100% - 1px), var(--ui-border-soft) 100%);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.page-title-bar-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  line-height: 1.4;
+}
+.page-title-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+}
+.session-title-text {
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.session-title-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.session-title-meta .mono {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+}
