@@ -24,7 +24,7 @@ import { Card } from '../components/Card.js';
 import { PageTitleBar } from '../components/PageTitleBar.js';
 import { EntityFormModal } from '../components/EntityFormModal.js';
 import { useDragSort } from '../components/useDragSort.js';
-import { IconPlus, IconPencil, IconClose, IconTerminal, IconFolder, IconBranch, IconRefresh, IconChevronUp, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor } from '../icons.js';
+import { IconPlus, IconPencil, IconClose, IconTerminal, IconFolder, IconBranch, IconRefresh, IconChevronUp, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor, IconSun, IconMoon, IconMonitor } from '../icons.js';
 import { parseArgs, formatArgs } from '../util.js';
 
 // Tokenize the three free-form args fields into string[] before they hit
@@ -584,9 +584,9 @@ function RestartButton() {
 function ThemeToggle() {
   const mode = themeMode.value;
   const opts = [
-    { id: 'light', label: 'Light' },
-    { id: 'dark', label: 'Dark' },
-    { id: 'system', label: 'System' },
+    { id: 'light', label: 'Light', icon: IconSun },
+    { id: 'dark', label: 'Dark', icon: IconMoon },
+    { id: 'system', label: 'System', icon: IconMonitor },
   ];
   return html`
     <div class="seg" role="group" aria-label="Appearance">
@@ -594,7 +594,9 @@ function ThemeToggle() {
         <button key=${o.id} type="button"
                 class=${`seg-btn${mode === o.id ? ' is-active' : ''}`}
                 aria-pressed=${mode === o.id}
-                onClick=${() => setThemeMode(o.id)}>${o.label}</button>`)}
+                onClick=${() => setThemeMode(o.id)}>
+          <${o.icon} /><span>${o.label}</span>
+        </button>`)}
     </div>`;
 }
 

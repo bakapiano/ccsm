@@ -22,6 +22,10 @@
   border-color: #ffffff;
   box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.6);
 }
+/* .fab base is var(--ink) (a light slab in dark mode) with var(--bg-elev)
+   text; its hover hardcoded #000, which would render dark text on black.
+   Send the hover lighter instead, matching .action.primary. */
+[data-theme="dark"] .fab:hover { background: #ffffff; }
 /* Focus rings / hover shadows used a dark ink wash that vanishes on a dark
    ground — switch to a light wash so the affordance stays visible. */
 [data-theme="dark"] .action:hover { box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.5); }

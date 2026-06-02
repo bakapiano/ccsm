@@ -63,7 +63,11 @@
 .action.danger {
   background: var(--red);
   border-color: var(--red);
-  color: var(--bg-elev);
+  /* Always light text — the danger red is dark in both themes, so it must
+     NOT follow --bg-elev (which is a dark surface in dark mode and would
+     render black text on red). In light mode --bg-elev was #fff anyway,
+     so this is identical there. */
+  color: #fff;
 }
 .action.danger:hover {
   background: #9a3636;
@@ -121,11 +125,15 @@ textarea {
   font-family: var(--body);
   font-size: 12.5px;
   font-weight: 500;
-  padding: 5px 14px;
+  padding: 5px 13px;
   border-radius: 6px;
   cursor: pointer;
   transition: background .14s ease, color .14s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
+.seg-btn svg { width: 14px; height: 14px; opacity: 0.85; }
 .seg-btn:hover { color: var(--ink); }
 .seg-btn.is-active {
   background: var(--bg-elev);

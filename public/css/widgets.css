@@ -1334,12 +1334,14 @@
 .adopt-tab.is-active {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  /* var(--bg-elev), not #fff — the slab is var(--ink), which is LIGHT in
+     dark mode, so white text would be invisible. --bg-elev tracks it. */
+  color: var(--bg-elev);
   font-weight: 500;
 }
 .adopt-tab.is-active .adopt-tab-count {
-  background: rgba(255, 255, 255, 0.22);
-  color: #fff;
+  background: color-mix(in srgb, var(--bg-elev) 22%, transparent);
+  color: var(--bg-elev);
 }
 .adopt-tab-icon { display: inline-flex; width: 16px; height: 16px; }
 .adopt-tab-icon svg { width: 100%; height: 100%; }
@@ -2582,7 +2584,9 @@
   padding: 1px 7px;
   border-radius: 999px;
   background: var(--ink);
-  color: #fff;
+  /* var(--bg-elev) tracks the --ink slab (light in dark mode) so the code
+     stays legible; #fff would be white-on-light. */
+  color: var(--bg-elev);
   font-variant-numeric: tabular-nums;
 }
 .remote-device-name { min-width: 0; }
