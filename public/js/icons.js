@@ -199,7 +199,7 @@ export const StarSmallFilled = ({ size = 14 } = {}) => html`
 // brand mark (terminal window + ccsm text — matches /favicon.svg)
 export const BrandMark = () => html`
   <svg viewBox="0 0 32 32" width="32" height="32">
-    <rect x="2" y="4" width="28" height="24" rx="3" fill="#1a1815"/>
+    <rect class="brand-rect" x="2" y="4" width="28" height="24" rx="3" fill="#1a1815"/>
     <line x1="2" y1="10" x2="30" y2="10" stroke="#faf9f5" stroke-width="0.6" opacity="0.45"/>
     <!-- macOS traffic-light style: red / yellow / green -->
     <circle cx="6"   cy="7" r="1" fill="#ed6a5e"/>

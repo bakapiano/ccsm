@@ -6,8 +6,8 @@ import { html } from '../html.js';
 import { useEffect, useState } from 'preact/hooks';
 import {
   config, configDirty, accentColor, folders, workspaces, serverHealth,
-  restartInFlight,
-  setAccentColor, ACCENT_DEFAULT,
+  restartInFlight, themeMode,
+  setAccentColor, ACCENT_DEFAULT, setThemeMode,
 } from '../state.js';
 import {
   api, loadConfig, loadWorkspaces, loadFolders,
@@ -182,6 +182,10 @@ export function ConfigurePage() {
 
     <${Section} title="General">
       <div class="config-grid">
+        <div class="field">
+          <span class="label">Appearance</span>
+          <${ThemeToggle} />
+        </div>
         <div class="field">
           <span class="label">Theme accent</span>
           <${AccentPicker} />
@@ -575,6 +579,23 @@ function RestartButton() {
       <button class="action" onClick=${onClick}>Restart backend</button>
     </div>
   `;
+}
+
+function ThemeToggle() {
+  const mode = themeMode.value;
+  const opts = [
+    { id: 'light', label: 'Light' },
+    { id: 'dark', label: 'Dark' },
+    { id: 'system', label: 'System' },
+  ];
+  return html`
+    <div class="seg" role="group" aria-label="Appearance">
+      ${opts.map((o) => html`
+        <button key=${o.id} type="button"
+                class=${`seg-btn${mode === o.id ? ' is-active' : ''}`}
+                aria-pressed=${mode === o.id}
+                onClick=${() => setThemeMode(o.id)}>${o.label}</button>`)}
+    </div>`;
 }
 
 function AccentPicker() {

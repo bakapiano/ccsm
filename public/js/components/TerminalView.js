@@ -11,28 +11,49 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { wsBase, getToken, getDeviceId } from '../backend.js';
+import { isDarkTheme, themeMode } from '../state.js';
 import { TerminalKeyBar } from './TerminalKeyBar.js';
 
-// Dark xterm theme. We give the terminal a near-black ink background to
-// match what claude code's TUI assumes (it paints its own input box +
-// prompt with hardcoded dark backgrounds — a light terminal makes those
-// regions look like black blocks). Cursor uses the favorite-star gold so
-// it pops against the ink without dragging brand orange back in.
-const THEME = {
-  background: '#1a1815',
-  foreground: '#e8e3d5',
-  cursor:     '#e3b341',
-  cursorAccent: '#1a1815',
-  selectionBackground: '#3a3530',
-  black:   '#1a1815', brightBlack:   '#534e44',
-  red:     '#e07b6e', brightRed:     '#f0a098',
-  green:   '#7fb670', brightGreen:   '#a0d28f',
-  yellow:  '#e3b341', brightYellow:  '#f0c860',
-  blue:    '#7d9fc4', brightBlue:    '#9bb8d8',
-  magenta: '#c08fd0', brightMagenta: '#d8aae2',
-  cyan:    '#6fb0b0', brightCyan:    '#90c8c8',
-  white:   '#e8e3d5', brightWhite:   '#faf9f5',
+// Dark xterm theme — VSCode's Dark+ terminal palette, verbatim (see
+// microsoft/vscode src/.../terminal/common/terminalColorRegistry.ts).
+// #1e1e1e ground, #ccc ink, the standard saturated ANSI set.
+const THEME_DARK = {
+  background: '#1e1e1e',
+  foreground: '#cccccc',
+  cursor:     '#aeafad',
+  cursorAccent: '#1e1e1e',
+  selectionBackground: '#264f78',
+  black:   '#000000', brightBlack:   '#666666',
+  red:     '#cd3131', brightRed:     '#f14c4c',
+  green:   '#0dbc79', brightGreen:   '#23d18b',
+  yellow:  '#e5e510', brightYellow:  '#f5f543',
+  blue:    '#2472c8', brightBlue:    '#3b8eea',
+  magenta: '#bc3fbc', brightMagenta: '#d670d6',
+  cyan:    '#11a8cd', brightCyan:    '#29b8db',
+  white:   '#e5e5e5', brightWhite:   '#e5e5e5',
 };
+
+// Light xterm theme — VSCode's Light+ terminal palette, verbatim (see
+// microsoft/vscode src/.../terminal/common/terminalColorRegistry.ts). Pure
+// white ground, #333 ink, the classic saturated ANSI set tuned for legible
+// contrast on white. The surrounding chrome (terminals.css --term-* light
+// defaults) follows the same neutral light grays so it reads as one panel.
+const THEME_LIGHT = {
+  background: '#ffffff',
+  foreground: '#333333',
+  cursor:     '#000000',
+  cursorAccent: '#ffffff',
+  selectionBackground: '#add6ff',
+  black:   '#000000', brightBlack:   '#666666',
+  red:     '#cd3131', brightRed:     '#cd3131',
+  green:   '#107c10', brightGreen:   '#14ce14',
+  yellow:  '#949800', brightYellow:  '#b5ba00',
+  blue:    '#0451a5', brightBlue:    '#0451a5',
+  magenta: '#bc05bc', brightMagenta: '#bc05bc',
+  cyan:    '#0598bc', brightCyan:    '#0598bc',
+  white:   '#555555', brightWhite:   '#a5a5a5',
+};
+const themeFor = (dark) => (dark ? THEME_DARK : THEME_LIGHT);
 
 export function TerminalView({ terminalId, cliType }) {
   const hostRef = useRef(null);
@@ -45,6 +66,11 @@ export function TerminalView({ terminalId, cliType }) {
   // currently holds the session.
   const [displaced, setDisplaced] = useState(false);
   const [reattachNonce, setReattach] = useState(0);
+  // Subscribe to the theme signal so a Settings toggle re-renders us and
+  // the theme-sync effect below re-runs. Holds the xterm theme currently
+  // applied so the IME handlers can re-issue it with a transparent cursor.
+  const mode = themeMode.value;
+  const themeRef = useRef(themeFor(isDarkTheme()));
 
   // Raw escape-sequence injector for the mobile key bar. Reads wsRef at
   // call time so it stays valid across reattaches without re-binding.
@@ -52,6 +78,24 @@ export function TerminalView({ terminalId, cliType }) {
     const ws = wsRef.current;
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data }));
   };
+
+  // Swap the xterm canvas palette when the resolved theme flips — both on
+  // an explicit Settings toggle (mode dep) and on an OS change while in
+  // 'system' mode (matchMedia listener). No remount: xterm re-rasterizes
+  // its glyph atlas from the new options.theme in place.
+  useEffect(() => {
+    const apply = () => {
+      const term = termRef.current;
+      if (!term) return;
+      const theme = themeFor(isDarkTheme());
+      themeRef.current = theme;
+      try { term.options.theme = theme; } catch {}
+    };
+    apply();
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [mode, reattachNonce]);
 
   useEffect(() => {
     if (!terminalId || !hostRef.current) return;
@@ -63,6 +107,8 @@ export function TerminalView({ terminalId, cliType }) {
     // next mount (rare; users typically don't rotate mid-session).
     const isMobile = window.matchMedia('(max-width: 640px)').matches;
     const baseFontSize = isMobile ? 11 : 13;
+    const initialTheme = themeFor(isDarkTheme());
+    themeRef.current = initialTheme;
     const term = new Terminal({
       fontFamily: '"Cascadia Mono", "Geist Mono", "JetBrains Mono", Consolas, monospace',
       fontSize: baseFontSize,
@@ -71,7 +117,7 @@ export function TerminalView({ terminalId, cliType }) {
       cursorStyle: 'bar',
       scrollback: 5000,
       allowProposedApi: true,
-      theme: THEME,
+      theme: initialTheme,
       // Modern keyboard protocols. Without these, xterm.js encodes
       // Shift+Enter, Ctrl+Enter, Ctrl+Shift+key etc. the same as their
       // unmodified versions (e.g. both Enter and Shift+Enter send \r),
@@ -381,16 +427,17 @@ export function TerminalView({ terminalId, cliType }) {
     // the CSS in terminals.css does the rest.
     const onCompStart = () => {
       if (host) host.classList.add('is-composing');
-      // The terminal cursor is rendered on canvas (THEME.cursor), so CSS
+      // The terminal cursor is rendered on canvas (theme.cursor), so CSS
       // can't hide it. Theme swap alone doesn't reliably stop the blink
       // frame loop, so also issue the DECTCEM hide sequence which the
-      // renderer honours immediately.
-      try { term.options.theme = { ...THEME, cursor: 'transparent', cursorAccent: 'transparent' }; } catch {}
+      // renderer honours immediately. Use the live theme (themeRef) so the
+      // restore on compEnd matches whatever light/dark is current.
+      try { term.options.theme = { ...themeRef.current, cursor: 'transparent', cursorAccent: 'transparent' }; } catch {}
       try { term.write('\x1b[?25l'); } catch {}
     };
     const onCompEnd   = () => {
       if (host) host.classList.remove('is-composing');
-      try { term.options.theme = THEME; } catch {}
+      try { term.options.theme = themeRef.current; } catch {}
       try { term.write('\x1b[?25h'); } catch {}
     };
     const helper = host?.querySelector('.xterm-helper-textarea');

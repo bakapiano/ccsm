@@ -1,5 +1,38 @@
 /* Terminals tab · left rail (active sessions) + right pane (xterm host) */
 
+/* Terminal-chrome palette. The xterm canvas itself is painted from a JS
+   theme object (TerminalView.js); these vars colour everything AROUND it —
+   the pane backdrop, the tab strip, the empty/displaced states, and the
+   mobile key bar — so the chrome tracks the canvas. Light defaults here;
+   dark.css overrides under [data-theme="dark"] with the original dark set.
+   Keep the two in lockstep with the JS THEME_LIGHT / THEME_DARK objects. */
+:root {
+  /* VSCode Light+ neutral panel grays, to sit seamlessly around the
+     white VSCode terminal canvas (THEME_LIGHT). */
+  --term-surface:       #ffffff;   /* matches THEME_LIGHT.background */
+  --term-on:            #333333;
+  --term-on-dim:        rgba(51, 51, 51, 0.70);
+  --term-on-faint:      rgba(51, 51, 51, 0.45);
+  --term-heading:       #1a1a1a;
+  --term-prompt:        #cd3131;   /* VSCode ansiRed */
+  --term-cta-bg:        #2c2c2c;
+  --term-cta-fg:        #ffffff;
+  --term-cta-bg-hover:  #000000;
+  --term-tabstrip:      #f0f0f0;
+  --term-tab:           #e4e4e4;
+  --term-tab-hover:     #d8d8d8;
+  --term-tab-text:      rgba(51, 51, 51, 0.70);
+  --term-keybar-bg:     #f0f0f0;
+  --term-key-fg:        #333333;
+  --term-key-bg:        rgba(0, 0, 0, 0.05);
+  --term-key-border:    rgba(0, 0, 0, 0.14);
+  --term-key-active-bg: rgba(0, 0, 0, 0.12);
+  --term-key-active-border: rgba(0, 0, 0, 0.28);
+  --term-key-hint:      rgba(0, 0, 0, 0.5);
+  --term-pop-bg:        #f6f6f6;
+  --term-pop-border:    rgba(0, 0, 0, 0.16);
+}
+
 .terminals-layout {
   display: grid;
   grid-template-columns: 240px 1fr;
@@ -246,7 +279,7 @@
      terminal. Negative horizontal margin cancels .main's padding so
      the strip is full-bleed like the terminal underneath. */
   margin: 0 calc(-1 * var(--s-4)) calc(-1 * var(--s-4));
-  background: #2d2a26;
+  background: var(--term-tabstrip);
   border-bottom: 0;
 }
 .session-tabs-list {
@@ -272,7 +305,7 @@
 }
 .session-tab {
   appearance: none;
-  background: #423d37;
+  background: var(--term-tab);
   border: 0;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;          /* overlap container border-bottom */
@@ -282,17 +315,17 @@
   gap: 6px;
   font: inherit;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--term-tab-text);
   cursor: pointer;
   max-width: 200px;
   min-width: 0;
   transition: background-color .12s, color .12s;
 }
-.session-tab:hover { background: #4f4942; color: #fff; }
+.session-tab:hover { background: var(--term-tab-hover); color: var(--term-on); }
 .session-tab.is-active {
-  background: var(--ink);
-  color: #fff;
-  border-bottom-color: var(--ink);
+  background: var(--term-surface);
+  color: var(--term-on);
+  border-bottom-color: var(--term-surface);
 }
 .session-tab-icon { display: inline-flex; flex-shrink: 0; }
 .session-tab-icon svg { width: 14px; height: 14px; }
@@ -303,7 +336,7 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
-.session-tab-meta { color: rgba(255, 255, 255, 0.5); font-size: 11px; }
+.session-tab-meta { color: var(--term-tab-text); font-size: 11px; }
 .session-tab.is-active .session-tab-meta { color: rgba(255, 255, 255, 0.6); }
 .session-tab-add {
   background: transparent;
@@ -412,14 +445,14 @@
 .session-pane-body {
   flex: 1;
   min-height: 0;
-  background: #1a1815;
+  background: var(--term-surface);
 }
 .session-pane-body .terminal-host {
   height: 100%;
 }
 .session-pane-body .terminal-empty {
-  background: #1a1815;
-  color: #e8e3d5;
+  background: var(--term-surface);
+  color: var(--term-on);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -429,16 +462,16 @@
   font-size: 13px;
 }
 .session-pane-body .terminal-empty .mono {
-  color: #e07b6e;
+  color: var(--term-prompt);
 }
 .session-pane-body .terminal-empty .action.primary {
-  background: #e8e3d5;
-  color: #1a1815;
-  border-color: #e8e3d5;
+  background: var(--term-cta-bg);
+  color: var(--term-cta-fg);
+  border-color: var(--term-cta-bg);
 }
 .session-pane-body .terminal-empty .action.primary:hover {
-  background: #faf9f5;
-  border-color: #faf9f5;
+  background: var(--term-cta-bg-hover);
+  border-color: var(--term-cta-bg-hover);
 }
 
 /* Displaced state — shown when the server kicks us off because another
@@ -446,8 +479,8 @@
    as terminal-empty so the transition from running terminal → displaced
    doesn't flash a colour change. */
 .terminal-displaced {
-  background: #1a1815;
-  color: #e8e3d5;
+  background: var(--term-surface);
+  color: var(--term-on);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -465,14 +498,14 @@
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #faf9f5;
+  color: var(--term-heading);
   letter-spacing: -0.005em;
 }
 .terminal-displaced-card p {
   margin: 0;
   font-size: 13px;
   line-height: 1.55;
-  color: rgba(232, 227, 213, 0.72);
+  color: var(--term-on-dim);
 }
 .terminal-displaced-actions {
   margin-top: var(--s-2);
@@ -480,19 +513,19 @@
   justify-content: center;
 }
 .terminal-displaced-card .action.primary {
-  background: #e8e3d5;
-  color: #1a1815;
-  border-color: #e8e3d5;
+  background: var(--term-cta-bg);
+  color: var(--term-cta-fg);
+  border-color: var(--term-cta-bg);
   padding: 9px 20px;
   font-size: 13px;
 }
 .terminal-displaced-card .action.primary:hover {
-  background: #faf9f5;
-  border-color: #faf9f5;
+  background: var(--term-cta-bg-hover);
+  border-color: var(--term-cta-bg-hover);
 }
 .terminal-displaced-hint {
   font-size: 11.5px !important;
-  color: rgba(232, 227, 213, 0.45) !important;
+  color: var(--term-on-faint) !important;
 }
 
 /* ─── Mobile terminal accessory bar (TerminalKeyBar.js) ───────────────
@@ -505,8 +538,8 @@
   left: 0;
   right: 0;
   z-index: 215;                 /* above the mobile FAB (210) */
-  background: #201d19;
-  border-top: 1px solid rgba(232, 227, 213, 0.12);
+  background: var(--term-keybar-bg);
+  border-top: 1px solid var(--term-key-border);
   padding: 6px 8px;
   touch-action: manipulation;   /* kill the 300ms double-tap-zoom delay */
   user-select: none;
@@ -538,17 +571,17 @@
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1;
-  color: #e8e3d5;
-  background: rgba(232, 227, 213, 0.06);
-  border: 1px solid rgba(232, 227, 213, 0.14);
+  color: var(--term-key-fg);
+  background: var(--term-key-bg);
+  border: 1px solid var(--term-key-border);
   border-radius: 8px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
 .tkb-key:active,
 .tkb-key.is-active {
-  background: rgba(232, 227, 213, 0.20);
-  border-color: rgba(232, 227, 213, 0.32);
+  background: var(--term-key-active-bg);
+  border-color: var(--term-key-active-border);
 }
 .tkb-arrow { padding: 0 10px; }
 .tkb-arrow svg { width: 18px; height: 18px; }
@@ -570,8 +603,8 @@
   grid-template-columns: repeat(5, 1fr);
   gap: 6px;
   padding: 8px;
-  background: #201d19;
-  border: 1px solid rgba(232, 227, 213, 0.16);
+  background: var(--term-pop-bg);
+  border: 1px solid var(--term-pop-border);
   border-radius: 10px;
   box-shadow: 0 -8px 24px -8px rgba(0, 0, 0, 0.5);
 }
@@ -582,5 +615,5 @@
   padding: 7px 4px;
   gap: 2px;
 }
-.tkb-combo-label { font-family: var(--mono); font-size: 13px; color: #e8e3d5; }
-.tkb-combo-hint  { font-size: 9.5px; color: rgba(232, 227, 213, 0.5); letter-spacing: 0.01em; }
+.tkb-combo-label { font-family: var(--mono); font-size: 13px; color: var(--term-key-fg); }
+.tkb-combo-hint  { font-size: 9.5px; color: var(--term-key-hint); letter-spacing: 0.01em; }

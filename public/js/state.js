@@ -39,6 +39,7 @@ export const isMobile             = signal(false);
 export const mobileDrawerOpen     = signal(false);
 export const sidebarWidth     = signal(232);     // px when expanded, persisted in localStorage
 export const accentColor      = signal('#2f6fa3'); // user-chosen brand accent, persisted
+export const themeMode        = signal('system');  // 'light' | 'dark' | 'system', persisted
 // Per-folder collapse state in the sidebar tree. Stored as a plain object
 // {folderId: true} (true = collapsed). Key 'unsorted' covers the implicit
 // Unsorted bucket.
@@ -105,6 +106,7 @@ export const TAB_HEADINGS = {
 const LS_SIDEBAR = 'ccsm.sidebar-collapsed';
 const LS_SIDEBAR_W = 'ccsm.sidebar-width';
 const LS_ACCENT = 'ccsm.accent';
+const LS_THEME = 'ccsm.theme';
 const LS_FOLDERS_COLLAPSED = 'ccsm.folders-collapsed';
 // Last-known sidebar tree, rehydrated on boot to keep the first paint
 // stable. The next refreshAll() overwrites these from the server, so
@@ -126,7 +128,9 @@ export function loadPersisted() {
   applySidebarWidthCssVar();
   const a = localStorage.getItem(LS_ACCENT);
   if (isHexColor(a)) accentColor.value = a;
-  applyAccentCssVars();
+  const t = localStorage.getItem(LS_THEME);
+  if (t === 'light' || t === 'dark' || t === 'system') themeMode.value = t;
+  applyTheme();
   try {
     const raw = localStorage.getItem(LS_FOLDERS_COLLAPSED);
     if (raw) {
@@ -166,7 +170,7 @@ export function setSidebarWidth(px) {
   localStorage.setItem(LS_SIDEBAR_W, String(clamped));
 }
 
-// ── theme accent ────────────────────────────────────────────────
+// ── theme (accent + light/dark) ─────────────────────────────────
 function isHexColor(s) {
   return typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s);
 }
@@ -178,48 +182,113 @@ function rgbToHex({ r, g, b }) {
   const h = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
   return `#${h(r)}${h(g)}${h(b)}`;
 }
-function darken({ r, g, b }, amount) {
-  return { r: r * (1 - amount), g: g * (1 - amount), b: b * (1 - amount) };
+// Linear blend c1→c2 by t∈[0,1]. t=0 yields c1, t=1 yields c2.
+function lerp(c1, c2, t) {
+  return { r: c1.r + (c2.r - c1.r) * t, g: c1.g + (c2.g - c1.g) * t, b: c1.b + (c2.b - c1.b) * t };
 }
-function mixWithWhite({ r, g, b }, t) {
-  return { r: r * t + 255 * (1 - t), g: g * t + 255 * (1 - t), b: b * t + 255 * (1 - t) };
+
+// Anchor colors the palette is derived from. Light mode mixes the accent
+// toward WHITE for surfaces and keeps warm-dark ink; dark mode mixes the
+// accent toward DARK for surfaces and uses warm-light ink — same accent,
+// inverted ground. Keep these in sync with the pre-paint script in
+// public/index.html (it re-derives the same values to avoid a FOUC).
+const WHITE = { r: 255, g: 255, b: 255 };
+const DARK_BASE = { r: 0x18, g: 0x16, b: 0x12 };   // #181612 warm near-black
+const LIGHT_INK = { r: 0xec, g: 0xe7, b: 0xda };   // #ece7da warm light text
+
+// True when the effective theme is dark. 'system' consults the OS.
+function resolveDark(mode) {
+  if (mode === 'dark') return true;
+  if (mode === 'light') return false;
+  return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 }
+
 function applyAccentCssVars() {
   const base = accentColor.value;
-  const rgb = hexToRgb(base);
-  const deep = rgbToHex(darken(rgb, 0.2));
-  const soft = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.10)`;
-  const softer = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.04)`;
-  const bg           = rgbToHex(mixWithWhite(rgb, 0.04));
-  const sidebarHover = rgbToHex(mixWithWhite(rgb, 0.10));
-  const sidebarActive= rgbToHex(mixWithWhite(rgb, 0.15));
-  const border       = rgbToHex(mixWithWhite(rgb, 0.15));
-  const borderSoft   = rgbToHex(mixWithWhite(rgb, 0.12));
-  const borderStrong = rgbToHex(mixWithWhite(rgb, 0.25));
-  // UI chrome (sidebar bg, dividers, footer strip) — themed too but
-  // visibly darker than the main bg so sidebar/main read as distinct.
-  // Border colors stay deliberately desaturated so dividers don't shout
-  // the brand color back at the user.
-  const uiBg         = rgbToHex(mixWithWhite(rgb, 0.10));
-  const uiBorder     = '#d8d4c6';     // theme-independent neutral
-  const uiBorderSoft = '#e6e2d4';     // theme-independent neutral
+  const A = hexToRgb(base);
+  const dark = resolveDark(themeMode.value);
   const root = document.documentElement.style;
-  root.setProperty('--accent', base);
-  root.setProperty('--accent-deep', deep);
-  root.setProperty('--accent-soft', soft);
-  root.setProperty('--accent-softer', softer);
-  root.setProperty('--bg', bg);
-  root.setProperty('--sidebar-bg', bg);
-  root.setProperty('--sidebar-hover', sidebarHover);
-  root.setProperty('--sidebar-active', sidebarActive);
-  root.setProperty('--border', border);
-  root.setProperty('--border-soft', borderSoft);
-  root.setProperty('--border-strong', borderStrong);
-  root.setProperty('--ui-bg', uiBg);
-  root.setProperty('--ui-border', uiBorder);
-  root.setProperty('--ui-border-soft', uiBorderSoft);
+  let vars;
+  if (dark) {
+    const bg = lerp(DARK_BASE, A, 0.06);          // dark ground, faint accent tint
+    const lift = (t) => rgbToHex(lerp(bg, LIGHT_INK, t)); // raise toward light
+    vars = {
+      '--accent': base,
+      '--accent-deep': rgbToHex(lerp(A, LIGHT_INK, 0.18)), // brighter on dark
+      '--accent-soft': `rgba(${A.r}, ${A.g}, ${A.b}, 0.18)`,
+      '--accent-softer': `rgba(${A.r}, ${A.g}, ${A.b}, 0.07)`,
+      '--bg': rgbToHex(bg),
+      '--bg-elev': lift(0.05),
+      '--sidebar-bg': rgbToHex(bg),
+      '--sidebar-hover': lift(0.09),
+      '--sidebar-active': lift(0.15),
+      '--border': lift(0.14),
+      '--border-soft': lift(0.09),
+      '--border-strong': lift(0.24),
+      '--ui-bg': lift(0.05),
+      '--ui-border': lift(0.16),
+      '--ui-border-soft': lift(0.10),
+      '--ink': rgbToHex(LIGHT_INK),
+      '--ink-mid': rgbToHex(lerp(LIGHT_INK, DARK_BASE, 0.28)),
+      '--ink-muted': rgbToHex(lerp(LIGHT_INK, DARK_BASE, 0.45)),
+      '--ink-faint': rgbToHex(lerp(LIGHT_INK, DARK_BASE, 0.60)),
+    };
+  } else {
+    const mix = (t) => rgbToHex(lerp(WHITE, A, t));  // light ground, accent tint
+    vars = {
+      '--accent': base,
+      '--accent-deep': rgbToHex(lerp(A, { r: 0, g: 0, b: 0 }, 0.2)),
+      '--accent-soft': `rgba(${A.r}, ${A.g}, ${A.b}, 0.10)`,
+      '--accent-softer': `rgba(${A.r}, ${A.g}, ${A.b}, 0.04)`,
+      '--bg': mix(0.04),
+      '--bg-elev': '#ffffff',
+      '--sidebar-bg': mix(0.04),
+      '--sidebar-hover': mix(0.10),
+      '--sidebar-active': mix(0.15),
+      '--border': mix(0.15),
+      '--border-soft': mix(0.12),
+      '--border-strong': mix(0.25),
+      '--ui-bg': mix(0.10),
+      '--ui-border': '#d8d4c6',       // theme-independent neutral
+      '--ui-border-soft': '#e6e2d4',  // theme-independent neutral
+      '--ink': '#1a1815',
+      '--ink-mid': '#534e44',
+      '--ink-muted': '#8a8475',
+      '--ink-faint': '#b5af9d',
+    };
+  }
+  for (const [k, v] of Object.entries(vars)) root.setProperty(k, v);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', bg);
+  if (meta) meta.setAttribute('content', vars['--bg']);
+}
+
+// Set data-theme on <html> (drives the [data-theme="dark"] CSS overrides)
+// and re-derive the accent-tinted palette for the resolved theme.
+function applyTheme() {
+  const dark = resolveDark(themeMode.value);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  applyAccentCssVars();
+}
+
+// React to OS theme changes while in 'system' mode.
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (themeMode.value === 'system') applyTheme();
+  });
+}
+
+// Resolved theme for non-CSS consumers (e.g. the xterm canvas, which is
+// painted from a JS color object, not CSS vars).
+export function isDarkTheme() {
+  return resolveDark(themeMode.value);
+}
+
+export function setThemeMode(mode) {
+  if (mode !== 'light' && mode !== 'dark' && mode !== 'system') return;
+  themeMode.value = mode;
+  applyTheme();
+  localStorage.setItem(LS_THEME, mode);
 }
 
 export function setAccentColor(hex) {

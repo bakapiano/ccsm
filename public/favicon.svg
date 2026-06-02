@@ -1,6 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The terminal-window body lifts on a dark browser/OS chrome so the
+       near-black mark doesn't vanish in the tab strip. Mirrors the in-app
+       BrandMark's [data-theme="dark"] .brand-rect treatment. -->
+  <style>
+    .body { fill: #1a1815; }
+    @media (prefers-color-scheme: dark) { .body { fill: #38342f; } }
+  </style>
   <!-- terminal window body -->
-  <rect x="2" y="4" width="28" height="24" rx="3" fill="#1a1815"/>
+  <rect class="body" x="2" y="4" width="28" height="24" rx="3"/>
   <!-- title bar divider -->
   <line x1="2" y1="10" x2="30" y2="10" stroke="#faf9f5" stroke-width="0.6" opacity="0.45"/>
   <!-- traffic-light dots -->

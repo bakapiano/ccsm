@@ -27,37 +27,69 @@
          redirect to ../ on backend upgrade would fall out of scope and
          the OS would re-show an address bar. -->
     <link rel="manifest" href="../manifest.webmanifest" />
-    <!-- Apply accent color BEFORE stylesheets/paint to avoid a flash
-         of the default warm-cream tokens.css bg. Mirrors
-         applyAccentCssVars() in state.js. Falls back to the Ocean
-         default (#2f6fa3) when no accent is saved so first-time
-         visitors also see the correct bg from the first frame. -->
+    <!-- Apply theme (accent + light/dark) BEFORE stylesheets/paint to
+         avoid a flash of the default light tokens.css bg. Mirrors
+         applyTheme()/applyAccentCssVars() in state.js — keep the two in
+         sync. Resolves 'system' against the OS, sets data-theme so the
+         [data-theme="dark"] CSS overrides apply from the first frame, and
+         derives the accent-tinted palette for the chosen ground. -->
     <script>
       (function () {
         try {
           var hex = localStorage.getItem('ccsm.accent');
           if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) hex = '#2f6fa3';
+          var mode = localStorage.getItem('ccsm.theme');
+          if (mode !== 'light' && mode !== 'dark' && mode !== 'system') mode = 'system';
+          var dark = mode === 'dark' || (mode === 'system'
+            && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
           var n = parseInt(hex.slice(1), 16);
-          var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+          var A = { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
           var toHex = function (v) { v = Math.max(0, Math.min(255, Math.round(v))); var s = v.toString(16); return s.length < 2 ? '0' + s : s; };
-          var mix = function (t) { return '#' + toHex(r * t + 255 * (1 - t)) + toHex(g * t + 255 * (1 - t)) + toHex(b * t + 255 * (1 - t)); };
-          var darken = function (a) { return '#' + toHex(r * (1 - a)) + toHex(g * (1 - a)) + toHex(b * (1 - a)); };
-          var bg = mix(0.04);
+          var rgb = function (c) { return '#' + toHex(c.r) + toHex(c.g) + toHex(c.b); };
+          var lerp = function (c1, c2, t) { return { r: c1.r + (c2.r - c1.r) * t, g: c1.g + (c2.g - c1.g) * t, b: c1.b + (c2.b - c1.b) * t }; };
+          var WHITE = { r: 255, g: 255, b: 255 }, BLACK = { r: 0, g: 0, b: 0 };
+          var DARK_BASE = { r: 0x18, g: 0x16, b: 0x12 }, LIGHT_INK = { r: 0xec, g: 0xe7, b: 0xda };
+
           var root = document.documentElement.style;
-          root.setProperty('--accent', hex);
-          root.setProperty('--accent-deep', darken(0.2));
-          root.setProperty('--accent-soft',   'rgba(' + r + ',' + g + ',' + b + ',0.10)');
-          root.setProperty('--accent-softer', 'rgba(' + r + ',' + g + ',' + b + ',0.04)');
-          root.setProperty('--bg', bg);
-          root.setProperty('--sidebar-bg', bg);
-          root.setProperty('--sidebar-hover', mix(0.10));
-          root.setProperty('--sidebar-active', mix(0.15));
-          root.setProperty('--border', mix(0.15));
-          root.setProperty('--border-soft', mix(0.12));
-          root.setProperty('--border-strong', mix(0.25));
-          root.setProperty('--ui-bg', mix(0.10));
+          var set = function (o) { for (var k in o) root.setProperty(k, o[k]); };
+          var vars;
+          if (dark) {
+            var bg = lerp(DARK_BASE, A, 0.06);
+            var lift = function (t) { return rgb(lerp(bg, LIGHT_INK, t)); };
+            vars = {
+              '--accent': hex,
+              '--accent-deep': rgb(lerp(A, LIGHT_INK, 0.18)),
+              '--accent-soft': 'rgba(' + A.r + ',' + A.g + ',' + A.b + ',0.18)',
+              '--accent-softer': 'rgba(' + A.r + ',' + A.g + ',' + A.b + ',0.07)',
+              '--bg': rgb(bg), '--bg-elev': lift(0.05), '--sidebar-bg': rgb(bg),
+              '--sidebar-hover': lift(0.09), '--sidebar-active': lift(0.15),
+              '--border': lift(0.14), '--border-soft': lift(0.09), '--border-strong': lift(0.24),
+              '--ui-bg': lift(0.05), '--ui-border': lift(0.16), '--ui-border-soft': lift(0.10),
+              '--ink': rgb(LIGHT_INK),
+              '--ink-mid': rgb(lerp(LIGHT_INK, DARK_BASE, 0.28)),
+              '--ink-muted': rgb(lerp(LIGHT_INK, DARK_BASE, 0.45)),
+              '--ink-faint': rgb(lerp(LIGHT_INK, DARK_BASE, 0.60)),
+            };
+          } else {
+            var mix = function (t) { return rgb(lerp(WHITE, A, t)); };
+            vars = {
+              '--accent': hex,
+              '--accent-deep': rgb(lerp(A, BLACK, 0.2)),
+              '--accent-soft': 'rgba(' + A.r + ',' + A.g + ',' + A.b + ',0.10)',
+              '--accent-softer': 'rgba(' + A.r + ',' + A.g + ',' + A.b + ',0.04)',
+              '--bg': mix(0.04), '--bg-elev': '#ffffff', '--sidebar-bg': mix(0.04),
+              '--sidebar-hover': mix(0.10), '--sidebar-active': mix(0.15),
+              '--border': mix(0.15), '--border-soft': mix(0.12), '--border-strong': mix(0.25),
+              '--ui-bg': mix(0.10), '--ui-border': '#d8d4c6', '--ui-border-soft': '#e6e2d4',
+              '--ink': '#1a1815', '--ink-mid': '#534e44', '--ink-muted': '#8a8475', '--ink-faint': '#b5af9d',
+            };
+          }
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+          set(vars);
           var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta) meta.setAttribute('content', bg);
+          if (meta) meta.setAttribute('content', vars['--bg']);
         } catch (_) {}
       })();
     </script>
@@ -80,6 +112,8 @@
     <link rel="stylesheet" href="./css/terminals.css" />
     <link rel="stylesheet" href="./css/wco.css" />
     <link rel="stylesheet" href="./css/responsive.css" />
+    <!-- Loaded last so its [data-theme="dark"] rules win the cascade. -->
+    <link rel="stylesheet" href="./css/dark.css" />
 
     <script type="importmap">
       {
