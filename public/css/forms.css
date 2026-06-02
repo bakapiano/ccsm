@@ -76,7 +76,14 @@
 
 .input, input[type="text"], input[type="number"], select, textarea {
   appearance: none;
-  background: var(--bg-elev);
+  /* background-COLOR, not the `background` shorthand — the shorthand resets
+     background-repeat/position/size to their initial values (repeat / 0% 0%
+     / auto), and since this rule matches <select> via the higher-specificity
+     `.input` selector, it was overriding the `select` rule's no-repeat +
+     positioning. Result: the dropdown arrow SVG tiled across the whole
+     select as a grid of little triangles. Setting only the color leaves the
+     select rule's background-* longhands intact. */
+  background-color: var(--bg-elev);
   border: 1px solid var(--border-strong);
   color: var(--ink);
   padding: 8px 12px;
@@ -94,7 +101,10 @@
   box-shadow: 0 0 0 3px rgba(26, 24, 21, 0.08);
 }
 select {
-  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 12 8' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%238a8475' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='1,1 6,7 11,1'/></svg>");
+  /* A single FILLED triangle, not a 2-stroke chevron. Thin strokes alias
+     into jagged "teeth" at this ~9px size; a solid shape anti-aliases
+     cleanly and reads as one arrow rather than a pair of serrations. */
+  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'><path d='M1 1 L5 5 L9 1 Z' fill='%238a8475'/></svg>");
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 10px;

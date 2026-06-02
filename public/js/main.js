@@ -156,6 +156,26 @@ function syncTitlebarHeight() {
 syncTitlebarHeight();
 navigator.windowControlsOverlay?.addEventListener?.('geometrychange', syncTitlebarHeight);
 
+// Mobile soft-keyboard height. The layout viewport (100vh) does NOT shrink
+// when the on-screen keyboard slides up — only `visualViewport` does — so a
+// full-height terminal keeps its bottom rows hidden behind the keyboard. We
+// publish the visible height as --app-vh (used by .app.is-mobile in
+// responsive.css to shrink the whole app to the area above the keyboard)
+// and flag body.kb-open when the keyboard is up (so the terminal can reserve
+// room for the floating key bar). cap at a 120px delta so a browser
+// URL-bar collapse doesn't read as a keyboard.
+function syncViewportHeight() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  document.documentElement.style.setProperty('--app-vh', `${Math.round(vv.height)}px`);
+  const kbUp = (window.innerHeight - vv.height - vv.offsetTop) > 120;
+  document.body.classList.toggle('kb-open', kbUp);
+}
+syncViewportHeight();
+window.visualViewport?.addEventListener?.('resize', syncViewportHeight);
+window.visualViewport?.addEventListener?.('scroll', syncViewportHeight);
+window.addEventListener('resize', syncViewportHeight);
+
 (async () => {
   // Version-mismatch guard runs FIRST. If the user's backend has been
   // upgraded since this per-version frontend was loaded, bounce back to

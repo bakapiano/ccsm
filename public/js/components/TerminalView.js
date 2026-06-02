@@ -215,50 +215,74 @@ export function TerminalView({ terminalId, cliType }) {
     if (dev) params.set('device', dev);
     const qs = params.toString();
     const wsUrl = `${wsBase()}/ws/terminal/${encodeURIComponent(terminalId)}${qs ? `?${qs}` : ''}`;
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
+    // Auto-reconnect. Mobile networks drop the WS constantly (radio sleep,
+    // cell↔wifi handoff, tab backgrounding) — leaving a dead "[disconnected]"
+    // terminal is the #1 mobile annoyance. We retry with capped backoff and
+    // re-attach to the same PTY. The server replays its FULL history on every
+    // attach (lib/webTerminal.js), so on a reconnect we reset the screen
+    // first, otherwise the replay stacks on top of what's already shown.
+    let closedByUs = false;
+    let reconnectTimer = null;
+    let attempts = 0;
+    let everOpened = false;
 
-    ws.onopen = () => {
-      // Fit synchronously here before reading cols/rows. On localhost the
-      // WS handshake usually completes within a few ms — well before the
-      // rAF-scheduled initial fit runs — so without this we'd ship the
-      // xterm.js default 80x24 to the PTY, claude would print its prompt
-      // wrapped at 80 cols, and the follow-up resize from the rAF fit
-      // wouldn't reflow the already-emitted bytes. Visible as squeezed
-      // text on every session switch.
-      scheduleFit();
-      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-    };
-    ws.onmessage = (ev) => {
-      let frame;
-      try { frame = JSON.parse(ev.data); } catch { return; }
-      if (frame.type === 'output') {
-        term.write(frame.data);
-      } else if (frame.type === 'exit') {
-        term.write(`\r\n\x1b[2m[process exited · code ${frame.code}]\x1b[0m\r\n`);
-      }
-    };
-    ws.onclose = (ev) => {
-      // Server uses code 4001 + reason "displaced by another client"
-      // when a fresh attach takes over the session (latest-wins policy
-      // in lib/webTerminal.js's attach). We replace the terminal with
-      // a full-pane prompt + Take it back button via setDisplaced(true).
-      // Generic disconnects (network blip, server restart, PTY exit)
-      // get the dim inline notice as before — those usually self-heal
-      // and aren't worth a modal.
-      if (ev && ev.code === 4001) {
-        setDisplaced(true);
-      } else {
-        term.write('\r\n\x1b[2m[disconnected]\x1b[0m\r\n');
-      }
-    };
+    const connect = () => {
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
 
+      ws.onopen = () => {
+        if (everOpened) {
+          // Reconnect: clear so the replayed history repopulates cleanly.
+          try { term.reset(); } catch {}
+        }
+        everOpened = true;
+        attempts = 0;
+        // Fit synchronously before sending cols/rows — the handshake often
+        // completes before the rAF-scheduled fit, so without this we'd ship
+        // the default 80x24 and claude would wrap its prompt at 80 cols.
+        scheduleFit();
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      };
+      ws.onmessage = (ev) => {
+        let frame;
+        try { frame = JSON.parse(ev.data); } catch { return; }
+        if (frame.type === 'output') {
+          term.write(frame.data);
+        } else if (frame.type === 'exit') {
+          term.write(`\r\n\x1b[2m[process exited · code ${frame.code}]\x1b[0m\r\n`);
+        }
+      };
+      ws.onclose = (ev) => {
+        if (closedByUs) return;
+        // Displaced by another client (latest-wins, code 4001) — reconnecting
+        // would just ping-pong, so show the "Take it back" pane instead.
+        if (ev && ev.code === 4001) { setDisplaced(true); return; }
+        // PTY is gone (server restarted / session ended, code 4404) — a
+        // reconnect can't revive it; the session needs a full resume.
+        if (ev && ev.code === 4404) {
+          term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n');
+          return;
+        }
+        // Network blip — retry with backoff (0.5/1/2/4/8s cap), indefinitely
+        // until the effect tears down (cleanup flips closedByUs).
+        attempts++;
+        const delay = Math.min(8000, 500 * 2 ** Math.min(attempts - 1, 4));
+        term.write('\r\n\x1b[2m[disconnected · reconnecting…]\x1b[0m\r\n');
+        reconnectTimer = setTimeout(() => { if (!closedByUs) connect(); }, delay);
+      };
+    };
+    connect();
+
+    // onData/onResize read wsRef.current (not a captured socket) so they keep
+    // working across reconnects.
     const onData = (data) => {
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data }));
+      const ws = wsRef.current;
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data }));
     };
     const onResize = ({ cols, rows }) => {
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      const ws = wsRef.current;
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     };
     term.onData(onData);
     term.onResize(onResize);
@@ -458,7 +482,9 @@ export function TerminalView({ terminalId, cliType }) {
       if (panelMo) panelMo.disconnect();
       vv?.removeEventListener?.('resize', onVisualResize);
       vv?.removeEventListener?.('scroll', onVisualResize);
-      try { ws.close(); } catch {}
+      closedByUs = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { wsRef.current?.close(); } catch {}
       try { term.dispose(); } catch {}
       termRef.current = null;
       wsRef.current = null;

@@ -14,18 +14,41 @@
  * session tabs, and the mobile key bar — those are dark in both themes. */
 
 /* ── buttons ─────────────────────────────────────────────────────── */
-/* .action.primary is bg:var(--ink)/text:var(--bg-elev) — already inverts
-   correctly (light slab, dark text) when the vars flip. Only its hover
-   hardcoded #000, which would darken the wrong way; send it brighter. */
+/* Primary CTA. In light mode it's the ink slab (near-black bg, light
+   text). The faithful inversion in dark mode is a near-WHITE slab, which
+   reads as a harsh pure-white button floating in the dark popups (the
+   Create / Done / Save buttons). Use the accent instead — that's the
+   conventional dark-UI primary and matches the accent-colored Launch CTA,
+   so every "do this" button in dark mode is one coherent color. */
+[data-theme="dark"] .action.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 [data-theme="dark"] .action.primary:hover {
-  background: #ffffff;
-  border-color: #ffffff;
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
   box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.6);
 }
-/* .fab base is var(--ink) (a light slab in dark mode) with var(--bg-elev)
-   text; its hover hardcoded #000, which would render dark text on black.
-   Send the hover lighter instead, matching .action.primary. */
-[data-theme="dark"] .fab:hover { background: #ffffff; }
+/* .fab is the same ink-slab pattern (var(--ink) bg) — give it the same
+   accent treatment so it isn't a white circle either. */
+[data-theme="dark"] .fab {
+  background: var(--accent);
+  color: #fff;
+}
+[data-theme="dark"] .fab:hover { background: var(--accent-deep); }
+/* Active "Working directory" mode card (Launch page). Its selected
+   highlight uses var(--ink) for the border + icon chip, which flips to
+   light cream in dark mode → a glaring white frame + white icon square.
+   Use the accent highlight instead, matching the dark primary button. */
+[data-theme="dark"] .workdir-mode-opt.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+[data-theme="dark"] .workdir-mode-opt.is-active .workdir-mode-icon {
+  background: var(--accent);
+  color: #fff;
+}
 /* Focus rings / hover shadows used a dark ink wash that vanishes on a dark
    ground — switch to a light wash so the affordance stays visible. */
 [data-theme="dark"] .action:hover { box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.5); }
@@ -36,9 +59,11 @@
 [data-theme="dark"] textarea:focus { box-shadow: 0 0 0 3px rgba(236, 231, 218, 0.12); }
 [data-theme="dark"] .action.danger:hover { background: #c75050; border-color: #c75050; }
 
-/* The select chevron SVG is baked with a mid-gray stroke; lighten it. */
+/* Filled triangle (see forms.css note) tinted to the faint dark-mode ink
+   so the select arrow is a calm solid mark instead of a pair of bright
+   jagged strokes. */
 [data-theme="dark"] select {
-  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 12 8' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23b4ab98' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='1,1 6,7 11,1'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'><path d='M1 1 L5 5 L9 1 Z' fill='%236d6a62'/></svg>");
 }
 
 /* ── brand mark ──────────────────────────────────────────────────── */
@@ -48,6 +73,22 @@
    fill alone separates it. (Light mode leaves the presentation-attribute
    fill untouched — it's already legible there.) */
 [data-theme="dark"] .brand-rect { fill: #38342f; }
+
+/* ── notifications (toast + restart pill) ────────────────────────── */
+/* Both use var(--ink) as their surface and var(--bg) as their text — a
+   deliberate high-contrast inverted pill in light mode. But var(--ink)
+   flips to light cream in dark mode, so the bottom-right notification
+   showed up as a pale pill that read as "still light / not following the
+   theme". In dark mode, give them a dark elevated surface with light text
+   + a defined border so they sit IN the dark theme like a snackbar. The
+   ::before chip and the spinner already use currentColor, so they invert
+   along with the text for free. */
+[data-theme="dark"] .toast,
+[data-theme="dark"] .restart-banner {
+  background: var(--bg-elev);
+  color: var(--ink);
+  border: 1px solid var(--border-strong);
+}
 
 /* ── paper grain ─────────────────────────────────────────────────── */
 /* The noise texture is a dark-tinted SVG multiplied over the surface —

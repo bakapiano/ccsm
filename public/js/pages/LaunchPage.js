@@ -6,7 +6,7 @@ import { html } from '../html.js';
 import { useState, useEffect } from 'preact/hooks';
 import { signal } from '@preact/signals';
 import { config, folders, selectSession, selectTab } from '../state.js';
-import { createCli, createFolder, createRepo, reorderFolders, refreshAll } from '../api.js';
+import { createCli, createFolder, createRepo, refreshAll } from '../api.js';
 import { setToast } from '../toast.js';
 import { streamNewSession, resetProgress } from '../streaming.js';
 import { PageTitleBar } from '../components/PageTitleBar.js';
@@ -15,7 +15,6 @@ import { Modal } from '../components/Modal.js';
 import { PickerPanel } from '../components/Picker.js';
 import { DirectoryPicker } from '../components/DirectoryPicker.js';
 import { AdoptModal } from '../components/AdoptModal.js';
-import { useDragSort } from '../components/useDragSort.js';
 import { BrandMark, IconTerminal, IconFolder, IconFolderOpen, IconBranch, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor, IconSparkle, IconWorkspace, IconArrowRight } from '../icons.js';
 
 const ROOT_ID = 'newSessionProgress';
@@ -95,13 +94,6 @@ function LaunchHero() {
     });
   }, [cliId, folderId, mode, cwd, selectedRepos.value]);
 
-  const folderDnd = useDragSort(
-    folders.value.map((f) => f.id),
-    async (nextIds) => {
-      try { await reorderFolders(nextIds); }
-      catch (e) { setToast(e.message, 'error'); }
-    },
-  );
 
   const sig = repos.map((r) => r.name + ':' + r.defaultSelected).join('|');
   useStateOnce(sig, () => initRepoSelection(repos, saved?.repos));
@@ -205,8 +197,8 @@ function LaunchHero() {
 
   // --- Folder picker config --------------------------------------------
   const folderItems = [
-    { id: '', label: 'Unsorted', meta: 'no folder', undraggable: true },
-    ...folders.value.map((f) => ({ id: f.id, label: f.name })),
+    { id: '', label: 'Unsorted', meta: 'no folder', undraggable: true, icon: html`<${IconFolderOpen} />` },
+    ...folders.value.map((f) => ({ id: f.id, label: f.name, icon: html`<${IconFolder} />` })),
   ];
   const folderCreateFields = [
     { key: 'name', label: 'Folder name', placeholder: 'Work / Personal / ...', autoFocus: true, required: true },
@@ -281,7 +273,14 @@ function LaunchHero() {
           <span class="pill-chev"><${IconChevronDown} /></span>
         </button>
         ${openPicker === 'workdir' ? html`
-          <${Modal} title="Working directory" onClose=${close} width=${640}>
+          <${Modal} title="Working directory" onClose=${close} width=${640}
+                    footer=${html`
+                      <button type="button" class="action subtle" onClick=${close}>Cancel</button>
+                      <button type="button" class="action primary"
+                              disabled=${mode === 'cwd' && !cwd}
+                              onClick=${close}>
+                        ${mode === 'cwd' ? 'Use folder' : 'Done'}
+                      </button>`}>
             <div class="workdir-modal">
               <div class="workdir-mode-grid">
                 <button type="button"
@@ -321,14 +320,6 @@ function LaunchHero() {
                                       onPick=${(p) => { setCwd(p); }} />
                 `}
               </div>
-              <div class="workdir-foot">
-                <button type="button" class="action subtle" onClick=${close}>Cancel</button>
-                <button type="button" class="action primary"
-                        disabled=${mode === 'cwd' && !cwd}
-                        onClick=${close}>
-                  ${mode === 'cwd' ? 'Use folder' : 'Done'}
-                </button>
-              </div>
             </div>
           </${Modal}>` : null}
 
@@ -344,7 +335,6 @@ function LaunchHero() {
           <${Modal} title="Choose folder" onClose=${close} width=${400}>
             <${PickerPanel} items=${folderItems} selectedId=${folderId}
                             showSearch=${false}
-                            dnd=${folderDnd}
                             onSelect=${(id) => setFolderId(id)}
                             onCreate=${async (v) => {
                               try {

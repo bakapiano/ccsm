@@ -1,15 +1,20 @@
 // Centered modal dialog with backdrop. Closes via Esc, the corner X,
 // or a click on the backdrop.
 //
-//   <${Modal} onClose=${close} title="Choose CLI" width=${440}>
-//     ...body...
+//   <${Modal} onClose=${close} title="Choose CLI" width=${440}
+//             footer=${html`<button ...>Cancel</button> ...`}>
+//     ...body (scrolls)...
 //   </${Modal}>
+//
+// When `footer` is given it renders in a fixed .modal-foot below the
+// scrollable body — the body grows/scrolls between a pinned head and a
+// pinned footer (the .modal is a flex column capped at 90vh).
 
 import { html } from '../html.js';
 import { useEffect, useRef } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 
-export function Modal({ title, width = 440, onClose, children }) {
+export function Modal({ title, width = 440, onClose, children, footer }) {
   const panelRef = useRef(null);
 
   useEffect(() => {
@@ -44,6 +49,7 @@ export function Modal({ title, width = 440, onClose, children }) {
             </button>
           </div>` : null}
         <div class="modal-body">${children}</div>
+        ${footer ? html`<div class="modal-foot">${footer}</div>` : null}
       </div>
     </div>`,
     document.body

@@ -415,15 +415,6 @@
 }
 .workdir-detail .filex-body { height: 320px; }
 
-.workdir-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin: 4px -20px -18px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-soft);
-  background: var(--bg);
-}
 
 .icon-radio-sub {
   font-size: 11px;
@@ -981,13 +972,9 @@
   gap: 8px;
   padding: 4px 0;
 }
-.entity-form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 4px;
-}
-.entity-test-button { margin-right: auto; }
+/* EntityFormModal's actions live in the modal footer (.modal-foot) now;
+   this keeps the Test button pushed to the left of Cancel/Save there. */
+.modal-foot .entity-test-button { margin-right: auto; }
 
 .entity-test-result {
   margin-top: 4px;
@@ -2583,10 +2570,12 @@
   letter-spacing: 0.08em;
   padding: 1px 7px;
   border-radius: 999px;
-  background: var(--ink);
-  /* var(--bg-elev) tracks the --ink slab (light in dark mode) so the code
-     stays legible; #fff would be white-on-light. */
-  color: var(--bg-elev);
+  /* Brand-accent chip, not the ink slab. var(--ink) flips to a light cream
+     in dark mode, which made this a glaring white pill; the accent is a
+     saturated mid-tone that's distinct (eye lands on it) and identical in
+     both themes. */
+  background: var(--accent);
+  color: #fff;
   font-variant-numeric: tabular-nums;
 }
 .remote-device-name { min-width: 0; }

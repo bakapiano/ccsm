@@ -65,9 +65,21 @@ export function EntityFormModal({
     }
   };
 
+  const footer = html`
+    ${onTest ? html`
+      <button type="button" class="action small subtle entity-test-button"
+              disabled=${testing} onClick=${runTest}>
+        ${testing ? 'Testing…' : testLabel}
+      </button>` : null}
+    <button type="button" class="action small subtle" onClick=${onClose}>Cancel</button>
+    <button type="submit" form="entity-form-modal" class=${`action small ${danger ? 'danger' : 'primary'}`}
+            disabled=${saving}>
+      ${saving ? 'Saving…' : submitLabel}
+    </button>`;
+
   return html`
-    <${Modal} title=${title} onClose=${onClose} width=${440}>
-      <form class="entity-form" onSubmit=${submit}>
+    <${Modal} title=${title} onClose=${onClose} width=${440} footer=${footer}>
+      <form id="entity-form-modal" class="entity-form" onSubmit=${submit}>
         ${fields.map((f) => html`
           <label class="entity-field" key=${f.key}>
             <span class="entity-field-label">${f.label}</span>
@@ -130,18 +142,6 @@ export function EntityFormModal({
             ${testResult.stdout ? html`<pre class="entity-test-out">${testResult.stdout}</pre>` : null}
             ${testResult.stderr ? html`<pre class="entity-test-out is-stderr">${testResult.stderr}</pre>` : null}
           </div>` : null}
-        <div class="entity-form-actions">
-          ${onTest ? html`
-            <button type="button" class="action small subtle entity-test-button"
-                    disabled=${testing} onClick=${runTest}>
-              ${testing ? 'Testing…' : testLabel}
-            </button>` : null}
-          <button type="button" class="action small subtle" onClick=${onClose}>Cancel</button>
-          <button type="submit" class=${`action small ${danger ? 'danger' : 'primary'}`}
-                  disabled=${saving}>
-            ${saving ? 'Saving…' : submitLabel}
-          </button>
-        </div>
       </form>
     </${Modal}>`;
 }
