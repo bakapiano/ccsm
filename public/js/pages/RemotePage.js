@@ -311,14 +311,16 @@ export function RemotePage() {
   const [deviceList, setDeviceList] = useState([]);
   const pollRef = useRef(null);
 
-  async function refresh() {
+  // Tunnel status and the device list are fetched INDEPENDENTLY, not as a
+  // bundled Promise.all. /api/tunnel/status can lag behind a cold provider
+  // probe; the device list is cheap. Coupling them made the (fast) device
+  // list wait on the (slow) status round-trip, so the whole page appeared
+  // to refresh in one delayed lump. Now each updates its own state the
+  // moment its own fetch lands.
+  async function refreshStatus() {
     try {
-      const [s, devs] = await Promise.all([
-        api('GET', '/api/tunnel/status'),
-        api('GET', '/api/devices').catch(() => ({ devices: [] })),
-      ]);
+      const s = await api('GET', '/api/tunnel/status');
       setStatus(s);
-      setDeviceList(devs.devices || []);
       setTokenLocal((cur) => cur || s.token || '');
       setProvider((cur) => {
         if (s.running && s.provider) return s.provider;
@@ -336,6 +338,13 @@ export function RemotePage() {
       } catch {}
     } catch (e) { setToast(`status load failed · ${e.message}`, 'error'); }
   }
+  async function refreshDevices() {
+    try {
+      const devs = await api('GET', '/api/devices');
+      setDeviceList(devs.devices || []);
+    } catch { /* non-critical — keep the last good list on a transient error */ }
+  }
+  function refresh() { refreshStatus(); refreshDevices(); }
 
   useEffect(() => {
     refresh();
@@ -344,11 +353,11 @@ export function RemotePage() {
   }, []);
 
   async function onApproveDevice(id) {
-    try { await api('POST', `/api/devices/${encodeURIComponent(id)}/approve`); refresh(); setToast('Device approved', 'ok'); }
+    try { await api('POST', `/api/devices/${encodeURIComponent(id)}/approve`); refreshDevices(); setToast('Device approved', 'ok'); }
     catch (e) { setToast(`approve failed · ${e.message}`, 'error'); }
   }
   async function onRejectDevice(id) {
-    try { await api('POST', `/api/devices/${encodeURIComponent(id)}/reject`); refresh(); setToast('Device rejected', 'ok'); }
+    try { await api('POST', `/api/devices/${encodeURIComponent(id)}/reject`); refreshDevices(); setToast('Device rejected', 'ok'); }
     catch (e) { setToast(`reject failed · ${e.message}`, 'error'); }
   }
   async function onDeleteDevice(d) {
@@ -357,7 +366,7 @@ export function RemotePage() {
       { title: 'Delete device record', okLabel: 'Delete', danger: true },
     );
     if (!ok) return;
-    try { await api('DELETE', `/api/devices/${encodeURIComponent(d.id)}`); refresh(); setToast('Device deleted', 'ok'); }
+    try { await api('DELETE', `/api/devices/${encodeURIComponent(d.id)}`); refreshDevices(); setToast('Device deleted', 'ok'); }
     catch (e) { setToast(`delete failed · ${e.message}`, 'error'); }
   }
   async function onRevokeDevice(d) {
@@ -365,13 +374,13 @@ export function RemotePage() {
       title: 'Revoke device', okLabel: 'Revoke', danger: true,
     });
     if (!ok) return;
-    try { await api('POST', `/api/devices/${encodeURIComponent(d.id)}/revoke`); refresh(); setToast('Access revoked', 'ok'); }
+    try { await api('POST', `/api/devices/${encodeURIComponent(d.id)}/revoke`); refreshDevices(); setToast('Access revoked', 'ok'); }
     catch (e) { setToast(`revoke failed · ${e.message}`, 'error'); }
   }
   async function onRenameDevice(d) {
     const next = await ccsmPrompt('Rename device', d.label || '', { okLabel: 'Save' });
     if (next === null) return;
-    try { await api('PUT', `/api/devices/${encodeURIComponent(d.id)}`, { label: next.trim() }); refresh(); }
+    try { await api('PUT', `/api/devices/${encodeURIComponent(d.id)}`, { label: next.trim() }); refreshDevices(); }
     catch (e) { setToast(`rename failed · ${e.message}`, 'error'); }
   }
 
