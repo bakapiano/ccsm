@@ -1,0 +1,542 @@
+// xterm.js wrapper. Mounts a terminal into a ref'd div, opens a WebSocket
+// to /ws/terminal/<id>, forwards keystrokes/resize as JSON frames, renders
+// output frames into xterm. Disposes everything on unmount or id change.
+
+import { html } from '../html.js';
+import { Fragment } from 'preact';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
+import { WebglAddon } from '@xterm/addon-webgl';
+import { wsBase, getToken, getDeviceId } from '../backend.js';
+import { isDarkTheme, themeMode } from '../state.js';
+import { TerminalKeyBar } from './TerminalKeyBar.js';
+
+// Dark xterm theme — VSCode's Dark+ terminal palette, verbatim (see
+// microsoft/vscode src/.../terminal/common/terminalColorRegistry.ts).
+// #1e1e1e ground, #ccc ink, the standard saturated ANSI set.
+const THEME_DARK = {
+  background: '#1e1e1e',
+  foreground: '#cccccc',
+  cursor:     '#aeafad',
+  cursorAccent: '#1e1e1e',
+  selectionBackground: '#264f78',
+  black:   '#000000', brightBlack:   '#666666',
+  red:     '#cd3131', brightRed:     '#f14c4c',
+  green:   '#0dbc79', brightGreen:   '#23d18b',
+  yellow:  '#e5e510', brightYellow:  '#f5f543',
+  blue:    '#2472c8', brightBlue:    '#3b8eea',
+  magenta: '#bc3fbc', brightMagenta: '#d670d6',
+  cyan:    '#11a8cd', brightCyan:    '#29b8db',
+  white:   '#e5e5e5', brightWhite:   '#e5e5e5',
+};
+
+// Light xterm theme — VSCode's Light+ terminal palette, verbatim (see
+// microsoft/vscode src/.../terminal/common/terminalColorRegistry.ts). Pure
+// white ground, #333 ink, the classic saturated ANSI set tuned for legible
+// contrast on white. The surrounding chrome (terminals.css --term-* light
+// defaults) follows the same neutral light grays so it reads as one panel.
+const THEME_LIGHT = {
+  background: '#ffffff',
+  foreground: '#333333',
+  cursor:     '#000000',
+  cursorAccent: '#ffffff',
+  selectionBackground: '#add6ff',
+  black:   '#000000', brightBlack:   '#666666',
+  red:     '#cd3131', brightRed:     '#cd3131',
+  green:   '#107c10', brightGreen:   '#14ce14',
+  yellow:  '#949800', brightYellow:  '#b5ba00',
+  blue:    '#0451a5', brightBlue:    '#0451a5',
+  magenta: '#bc05bc', brightMagenta: '#bc05bc',
+  cyan:    '#0598bc', brightCyan:    '#0598bc',
+  white:   '#555555', brightWhite:   '#a5a5a5',
+};
+const themeFor = (dark) => (dark ? THEME_DARK : THEME_LIGHT);
+
+export function TerminalView({ terminalId, cliType }) {
+  const hostRef = useRef(null);
+  const termRef = useRef(null);
+  const wsRef = useRef(null);
+  // Set when ws.onclose receives our custom "displaced by another
+  // client" code (4001) from lib/webTerminal.js's latest-wins policy.
+  // Renders a full-pane prompt with a "Take it back" button that bumps
+  // reattachNonce → useEffect re-runs → new WS, displacing whoever
+  // currently holds the session.
+  const [displaced, setDisplaced] = useState(false);
+  const [reattachNonce, setReattach] = useState(0);
+  // Subscribe to the theme signal so a Settings toggle re-renders us and
+  // the theme-sync effect below re-runs. Holds the xterm theme currently
+  // applied so the IME handlers can re-issue it with a transparent cursor.
+  const mode = themeMode.value;
+  const themeRef = useRef(themeFor(isDarkTheme()));
+
+  // Raw escape-sequence injector for the mobile key bar. Reads wsRef at
+  // call time so it stays valid across reattaches without re-binding.
+  const sendInput = (data) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data }));
+  };
+
+  // Swap the xterm canvas palette when the resolved theme flips — both on
+  // an explicit Settings toggle (mode dep) and on an OS change while in
+  // 'system' mode (matchMedia listener). No remount: xterm re-rasterizes
+  // its glyph atlas from the new options.theme in place.
+  useEffect(() => {
+    const apply = () => {
+      const term = termRef.current;
+      if (!term) return;
+      const theme = themeFor(isDarkTheme());
+      themeRef.current = theme;
+      try { term.options.theme = theme; } catch {}
+    };
+    apply();
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [mode, reattachNonce]);
+
+  useEffect(() => {
+    if (!terminalId || !hostRef.current) return;
+
+    // Mobile viewports (≤ 640px) get a smaller default font so claude's
+    // UI fits ~50 cols instead of the ~26 that 13px would buy at 390px.
+    // Desktop stays at 13. We re-evaluate on every mount, so a viewport
+    // rotation that crosses the breakpoint picks up the new size on
+    // next mount (rare; users typically don't rotate mid-session).
+    const isMobile = window.matchMedia('(max-width: 640px)').matches;
+    const baseFontSize = isMobile ? 11 : 13;
+    const initialTheme = themeFor(isDarkTheme());
+    themeRef.current = initialTheme;
+    const term = new Terminal({
+      fontFamily: '"Cascadia Mono", "Geist Mono", "JetBrains Mono", Consolas, monospace',
+      fontSize: baseFontSize,
+      lineHeight: 1.2,
+      cursorBlink: true,
+      cursorStyle: 'bar',
+      scrollback: 5000,
+      allowProposedApi: true,
+      theme: initialTheme,
+      // Modern keyboard protocols. Without these, xterm.js encodes
+      // Shift+Enter, Ctrl+Enter, Ctrl+Shift+key etc. the same as their
+      // unmodified versions (e.g. both Enter and Shift+Enter send \r),
+      // so TUIs like claude code can't tell them apart.
+      //
+      // - kittyKeyboard: opt-in protocol that apps enable per-session;
+      //   xterm emits CSI u sequences that uniquely encode every modifier
+      //   combo. Claude / vim / fish recognise it.
+      // - win32InputMode: ConPTY-specific protocol that surfaces raw
+      //   Win32 KEY_EVENT_RECORD to the child process, again preserving
+      //   modifier info. Required for full key fidelity on Windows.
+      // (Same set VSCode enables — see vscode/src/.../xtermTerminal.ts)
+      vtExtensions: {
+        kittyKeyboard: true,
+        win32InputMode: true,
+      },
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon());
+    // OSC 52 clipboard integration. Lets TUI apps initiate clipboard reads/
+    // writes via escape sequences (e.g. `tmux set-buffer` or claude code
+    // saying "copied to clipboard"). Does NOT handle the browser-side
+    // Ctrl+V — that's still our document-level paste handler below.
+    term.loadAddon(new ClipboardAddon());
+    // WebGL renderer for performance. The default DOM renderer struggles
+    // when claude code produces dense color output (its diff panels,
+    // syntax-highlighted code). WebGL paints onto a canvas, much smoother
+    // at thousands-of-cells per frame. Falls back to DOM if WebGL is
+    // unavailable (e.g. older GPU, hardware accel disabled).
+    //
+    // Skipped on phones: @xterm/addon-webgl@0.18.0 miscalculates the glyph
+    // atlas at the fractional DPRs that modern Android handsets report
+    // (Pixel 6/7/8 = 2.625, S24 = 2.625, etc.) — every cell ends up
+    // rendered ~3× wider than the layout grid says it should, blowing out
+    // the terminal. Integer DPRs (1, 2, 3 — desktops, iPhones) and the
+    // common Windows 1.5 are fine, so the gate is on the mobile viewport
+    // breakpoint, not the raw DPR.
+    if (!isMobile) {
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => { try { webgl.dispose(); } catch {} });
+        term.loadAddon(webgl);
+      } catch (e) {
+        console.warn('[ccsm] WebGL addon failed, using DOM renderer:', e);
+      }
+    }
+    // Ctrl+C with a selection: by default xterm.js sends \x03 AND the
+    // browser's own copy event fires — so the user gets "selection
+    // copied to clipboard" AND the running CLI gets SIGINT. Mirror
+    // VSCode/Windows Terminal behaviour: when there's a selection,
+    // suppress \x03 and let the copy event do its thing. With no
+    // selection, Ctrl+C still sends \x03 normally.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === 'keydown'
+          && ev.ctrlKey && !ev.shiftKey && !ev.altKey && !ev.metaKey
+          && ev.key.toLowerCase() === 'c'
+          && term.hasSelection()) {
+        return false;
+      }
+      return true;
+    });
+
+    const host = hostRef.current;
+    term.open(host);
+    // Robust fit scheduler. A single requestAnimationFrame works most
+    // of the time but races on tab/session switches: the .tab-panel
+    // just flipped from display:none to display:flex and although the
+    // browser has laid the element out by the next frame, xterm's
+    // canvas measurement occasionally still reports the pre-display
+    // size (Chromium quirk — the WebGL renderer caches its viewport
+    // before the layout flush propagates through ResizeObserver).
+    // Result: visible "wrong cols/rows until I resize the window" bug.
+    // Spraying fits at 0 / one rAF / 60ms / 200ms covers every
+    // measurement-arrival path without being expensive — fit.fit() is
+    // a no-op when cols/rows match the previous call.
+    const scheduleFit = () => {
+      try { fit.fit(); } catch {}
+      requestAnimationFrame(() => {
+        try { fit.fit(); } catch {}
+        setTimeout(() => { try { fit.fit(); } catch {} }, 60);
+        setTimeout(() => { try { fit.fit(); } catch {} }, 200);
+      });
+    };
+    scheduleFit();
+    termRef.current = term;
+
+    // Browser WS API can't set Authorization headers — token + device
+    // ride as query string when we have them (Remote-mode access).
+    // Server's upgrade handler reads both when Host is non-loopback.
+    const tok = getToken();
+    const dev = getDeviceId();
+    const params = new URLSearchParams();
+    if (tok) params.set('token', tok);
+    if (dev) params.set('device', dev);
+    const qs = params.toString();
+    const wsUrl = `${wsBase()}/ws/terminal/${encodeURIComponent(terminalId)}${qs ? `?${qs}` : ''}`;
+    // Auto-reconnect. Mobile networks drop the WS constantly (radio sleep,
+    // cell↔wifi handoff, tab backgrounding) — leaving a dead "[disconnected]"
+    // terminal is the #1 mobile annoyance. We retry with capped backoff and
+    // re-attach to the same PTY. The server replays its FULL history on every
+    // attach (lib/webTerminal.js), so on a reconnect we reset the screen
+    // first, otherwise the replay stacks on top of what's already shown.
+    let closedByUs = false;
+    let reconnectTimer = null;
+    let attempts = 0;
+    let everOpened = false;
+
+    const connect = () => {
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (everOpened) {
+          // Reconnect: clear so the replayed history repopulates cleanly.
+          try { term.reset(); } catch {}
+        }
+        everOpened = true;
+        attempts = 0;
+        // Fit synchronously before sending cols/rows — the handshake often
+        // completes before the rAF-scheduled fit, so without this we'd ship
+        // the default 80x24 and claude would wrap its prompt at 80 cols.
+        scheduleFit();
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      };
+      ws.onmessage = (ev) => {
+        let frame;
+        try { frame = JSON.parse(ev.data); } catch { return; }
+        if (frame.type === 'output') {
+          term.write(frame.data);
+        } else if (frame.type === 'exit') {
+          term.write(`\r\n\x1b[2m[process exited · code ${frame.code}]\x1b[0m\r\n`);
+        }
+      };
+      ws.onclose = (ev) => {
+        if (closedByUs) return;
+        // Displaced by another client (latest-wins, code 4001) — reconnecting
+        // would just ping-pong, so show the "Take it back" pane instead.
+        if (ev && ev.code === 4001) { setDisplaced(true); return; }
+        // PTY is gone (server restarted / session ended, code 4404) — a
+        // reconnect can't revive it; the session needs a full resume.
+        if (ev && ev.code === 4404) {
+          term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n');
+          return;
+        }
+        // Network blip — retry with backoff (0.5/1/2/4/8s cap), indefinitely
+        // until the effect tears down (cleanup flips closedByUs).
+        attempts++;
+        const delay = Math.min(8000, 500 * 2 ** Math.min(attempts - 1, 4));
+        term.write('\r\n\x1b[2m[disconnected · reconnecting…]\x1b[0m\r\n');
+        reconnectTimer = setTimeout(() => { if (!closedByUs) connect(); }, delay);
+      };
+    };
+    connect();
+
+    // onData/onResize read wsRef.current (not a captured socket) so they keep
+    // working across reconnects.
+    const onData = (data) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data }));
+    };
+    const onResize = ({ cols, rows }) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    };
+    term.onData(onData);
+    term.onResize(onResize);
+
+    const ro = new ResizeObserver(() => { try { fit.fit(); } catch {} });
+    ro.observe(hostRef.current);
+
+    // Mobile soft-keyboard resize. When the IME slides up on iOS /
+    // Android, the layout viewport doesn't change but `visualViewport`
+    // does — the page now has less vertical room before the keyboard
+    // covers the bottom. xterm's host element keeps its old layout
+    // height (we use 100vh-derived sizing) so half the terminal sits
+    // behind the keyboard with no resize callback fired. Listening
+    // here covers it: any visualViewport size change triggers a fit
+    // so the cell grid matches the visible area. Cheap; fit.fit() is
+    // a no-op when nothing changed.
+    const vv = window.visualViewport;
+    const onVisualResize = () => scheduleFit();
+    vv?.addEventListener?.('resize', onVisualResize);
+    vv?.addEventListener?.('scroll', onVisualResize);
+
+    // Tab-switch refresh. The terminal lives inside a .tab-panel which gets
+    // display:none when another tab is active. WebGL renderers keep a glyph
+    // texture atlas in GPU memory; when the canvas hides + redisplays at a
+    // potentially different devicePixelRatio, the atlas isn't invalidated
+    // and old glyphs blend with newly-rasterized ones — visible as scrolling
+    // text ghosting / double-strikes. Watching the tab-panel's data-active
+    // attribute and clearing the atlas + re-fitting + forcing a full
+    // refresh wipes the cache cleanly.
+    const panel = host.closest('.tab-panel');
+    let panelMo = null;
+    if (panel) {
+      panelMo = new MutationObserver(() => {
+        if (panel.hasAttribute('data-active')) {
+          requestAnimationFrame(() => {
+            try { term.clearTextureAtlas?.(); } catch {}
+            scheduleFit();
+            try { term.refresh(0, term.rows - 1); } catch {}
+          });
+        }
+      });
+      panelMo.observe(panel, { attributes: true, attributeFilter: ['data-active'] });
+    }
+
+    // give focus to terminal so user can type immediately
+    term.focus();
+
+    // Explicit paste handler. xterm.js relies on the browser routing paste
+    // events to its hidden .xterm-helper-textarea, which only works if that
+    // textarea has focus at the moment of Ctrl+V. When the user clicks
+    // elsewhere then hits Ctrl+V over the terminal, or pastes via the
+    // right-click menu on the host div, the event lands on the host and
+    // xterm never sees it. Catch it here and route through term.paste()
+    // so xterm wraps the text in bracketed-paste markers when the app
+    // (claude code) has DECSET 2004 enabled — that's what makes claude
+    // show the "[Pasted text]" affordance instead of treating it as
+    // typed input.
+    const isOurs = () => {
+      const ae = document.activeElement;
+      return ae && host.contains(ae);
+    };
+    const doPaste = (text) => {
+      if (!text) return;
+      if (ws.readyState !== 1) return;
+      // Normalize line endings to \r (CR / Enter). This mirrors VSCode's
+      // terminal sendText path (terminalInstance.ts ~L1385):
+      //   text = text.replace(/\r?\n/g, '\r');
+      // Bracketed-paste markers protect each \r from being interpreted
+      // as a submit by the host app — claude / pwsh / vim all treat
+      // bracketed contents as opaque payload regardless of what's inside.
+      // Use \n instead and you trip apps that look for "real" line breaks.
+      const normalized = text.replace(/\r?\n/g, '\r');
+      // Wrap in bracketed-paste markers. Claude Code enables DECSET 2004
+      // on startup, so the markers let it detect a paste and render
+      // "[Pasted text]". If the host app doesn't have bracketed paste on,
+      // it just sees two ignored escape sequences plus the text.
+      const wrapped = `\x1b[200~${normalized}\x1b[201~`;
+      ws.send(JSON.stringify({ type: 'input', data: wrapped }));
+    };
+    const onPaste = async (ev) => {
+      if (!isOurs()) return;
+      let text = '';
+      if (ev.clipboardData) text = ev.clipboardData.getData('text');
+      if (!text && navigator.clipboard) {
+        try { text = await navigator.clipboard.readText(); } catch {}
+      }
+      if (!text) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      doPaste(text);
+    };
+    document.addEventListener('paste', onPaste, true);
+
+    // Ctrl/Cmd+V fallback for cases the paste event is suppressed (some
+    // extensions, or when our IME workaround moved the helper textarea
+    // off-screen and the browser refuses to fire paste on it).
+    // IMPORTANT: preventDefault must happen synchronously, BEFORE the
+    // await on navigator.clipboard.readText(). If we let the event tick
+    // run first, xterm's keystroke handler converts Ctrl+V into the raw
+    // ^V (0x16) control byte and ships it before our async paste even
+    // resolves.
+    const onKey = (ev) => {
+      const meta = ev.ctrlKey || ev.metaKey;
+      if (!meta || ev.key.toLowerCase() !== 'v') return;
+      if (ev.shiftKey || ev.altKey) return;
+      if (!isOurs()) return;
+      if (!navigator.clipboard?.readText) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      ev.stopImmediatePropagation();
+      navigator.clipboard.readText().then((text) => {
+        if (text) doPaste(text);
+      }).catch(() => {});
+    };
+    document.addEventListener('keydown', onKey, true);
+
+    // Shift+Enter / Ctrl+Enter → insert literal newline, don't submit.
+    // Background: xterm.js encodes BOTH plain Enter and Shift+Enter and
+    // Ctrl+Enter as \r (0x0D / CR). The kitty keyboard / win32 input
+    // protocols WOULD distinguish them, but they're opt-in by the
+    // running app and most CLIs don't enable them, so we never get the
+    // distinction "for free". Each CLI handles modified-Enter differently:
+    //
+    //   claude   · expects a literal LF (0x0A) — its prompt treats \n
+    //              as "insert newline", \r as "submit". Workaround = '\n'.
+    //   codex / others · use ratatui or similar TUI libs that decode
+    //              the kitty keyboard CSI u sequence. We synthesise it
+    //              explicitly: `CSI 13 ; <mod> u` where mod = 2 for
+    //              Shift, 5 for Ctrl. That maps to the exact key+mod
+    //              the user pressed and ratatui inserts a newline.
+    //
+    // Alt+Enter already works (xterm sends \x1b\r → meta-enter) so we
+    // leave that alone.
+    const onShiftEnter = (ev) => {
+      if (ev.key !== 'Enter') return;
+      if (!(ev.shiftKey || ev.ctrlKey)) return;
+      if (ev.metaKey || ev.altKey) return;
+      if (!isOurs()) return;
+      // claude  → LF (its prompt parses \n as insert-newline).
+      // others  → ESC+CR i.e. Alt+Enter. crossterm (codex/copilot
+      //   TUI libs) decodes ESC-prefixed sequences as Alt-modified
+      //   without needing the kitty keyboard protocol enabled — and
+      //   codex's default keymap binds Alt+Enter to insert_newline
+      //   alongside Shift+Enter (see openai/codex
+      //   codex-rs/tui/src/keymap.rs L904-909). The kitty CSI u
+      //   sequence we tried first only works after the app has
+      //   negotiated kitty mode, which codex doesn't do by default.
+      const data = cliType === 'claude' ? '\n' : '\x1b\r';
+      ev.preventDefault();
+      ev.stopPropagation();
+      ev.stopImmediatePropagation();
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'input', data }));
+      }
+    };
+    document.addEventListener('keydown', onShiftEnter, true);
+
+    // IME fix: xterm positions .xterm-helper-textarea via `left: <col-px>`
+    // following the cursor. When the cursor is near the right edge and the
+    // user starts composing (e.g. Chinese pinyin), the textarea + native
+    // composition popup grow with the composed string and overflow the
+    // terminal host — which visually pushes the layout right. We can't cap
+    // width / change wrapping (that breaks Chromium's IME event flow), but
+    // we CAN re-anchor the textarea to the right edge while composing so
+    // it grows leftward instead. Toggling a class on the host is enough;
+    // the CSS in terminals.css does the rest.
+    const onCompStart = () => {
+      if (host) host.classList.add('is-composing');
+      // The terminal cursor is rendered on canvas (theme.cursor), so CSS
+      // can't hide it. Theme swap alone doesn't reliably stop the blink
+      // frame loop, so also issue the DECTCEM hide sequence which the
+      // renderer honours immediately. Use the live theme (themeRef) so the
+      // restore on compEnd matches whatever light/dark is current.
+      try { term.options.theme = { ...themeRef.current, cursor: 'transparent', cursorAccent: 'transparent' }; } catch {}
+      try { term.write('\x1b[?25l'); } catch {}
+    };
+    const onCompEnd   = () => {
+      if (host) host.classList.remove('is-composing');
+      try { term.options.theme = themeRef.current; } catch {}
+      try { term.write('\x1b[?25h'); } catch {}
+    };
+    const helper = host?.querySelector('.xterm-helper-textarea');
+    if (helper) {
+      helper.addEventListener('compositionstart', onCompStart);
+      helper.addEventListener('compositionend', onCompEnd);
+    }
+
+    return () => {
+      document.removeEventListener('paste', onPaste, true);
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('keydown', onShiftEnter, true);
+      if (helper) {
+        helper.removeEventListener('compositionstart', onCompStart);
+        helper.removeEventListener('compositionend', onCompEnd);
+      }
+      ro.disconnect();
+      if (panelMo) panelMo.disconnect();
+      vv?.removeEventListener?.('resize', onVisualResize);
+      vv?.removeEventListener?.('scroll', onVisualResize);
+      closedByUs = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { wsRef.current?.close(); } catch {}
+      try { term.dispose(); } catch {}
+      termRef.current = null;
+      wsRef.current = null;
+    };
+  }, [terminalId, reattachNonce]);
+
+  if (!terminalId) {
+    return html`<div class="terminal-empty">Select a terminal on the left, or launch a new one.</div>`;
+  }
+  if (displaced) {
+    // Distinct key (and a non-div tag) forces Preact's reconciler to
+    // UNMOUNT the host <div> and mount a fresh element. Without this,
+    // Preact reuses the same DOM node, only flipping its className —
+    // and the xterm canvases stay parented inside, visible behind our
+    // overlay text. Re-mount on reattach: bumping reattachNonce reruns
+    // the effect with a fresh Terminal + WebSocket pair, which the
+    // server's latest-wins gate handles by displacing the current
+    // holder.
+    return html`
+      <section key="displaced" class="terminal-displaced">
+        <div class="terminal-displaced-card">
+          <h2>Another device picked up this session</h2>
+          <p>
+            Only one client at a time can attach. Your terminal here was
+            closed when another browser opened this session — its keystrokes
+            and resize events would otherwise fight yours.
+          </p>
+          <div class="terminal-displaced-actions">
+            <button class="action primary"
+                    onClick=${() => {
+                      // Clear displaced FIRST so the next render swaps the
+                      // overlay out for the host div — that's the only
+                      // way hostRef.current populates. Then bump the nonce
+                      // so the effect re-runs with the freshly-mounted
+                      // host and opens a new WS. Doing both in one tick
+                      // batches the state updates; React renders, mounts
+                      // the host, then flushes effects.
+                      setDisplaced(false);
+                      setReattach((n) => n + 1);
+                    }}>
+              Take it back
+            </button>
+          </div>
+          <p class="terminal-displaced-hint">
+            Taking it back will close the other client the same way.
+          </p>
+        </div>
+      </section>`;
+  }
+  return html`
+    <${Fragment}>
+      <div key="host" ref=${hostRef} class="terminal-host"></div>
+      <${TerminalKeyBar} send=${sendInput} cliType=${cliType} />
+    </${Fragment}>`;
+}

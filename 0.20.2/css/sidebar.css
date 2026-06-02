@@ -1,0 +1,707 @@
+/* Left collapsible sidebar nav · brand mark · util items · collapse toggle */
+
+.sidebar {
+  /* One value drives all three "section break" gaps in the sidebar
+     column: brand-strip → first nav item, last nav item → "Sessions"
+     header, and "Sessions" header → first folder. Bump or shrink to
+     adjust how breathy the rail feels. */
+  --sidebar-section-gap: var(--s-2);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  background: var(--ui-bg);
+  border-right: 1px solid var(--ui-border);
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--s-2);
+  overflow: visible;
+  transition: padding .25s cubic-bezier(.4, 0, .2, 1);
+}
+.sidebar[data-collapsed="true"] {
+  padding: 0;
+}
+/* Collapsed: every clickable row becomes a 28x28 square, centered in
+   the narrow sidebar column. Width auto + margin auto so the square
+   sits centered regardless of what padding the parent has. */
+.sidebar[data-collapsed="true"] .nav-item,
+.sidebar[data-collapsed="true"] .util-item,
+.sidebar[data-collapsed="true"] .sidebar-brand-button,
+.sidebar[data-collapsed="true"] .tree-folder-head,
+.sidebar[data-collapsed="true"] .tree-session {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  margin: 0 auto;
+  justify-content: center;
+  gap: 0;
+}
+.sidebar[data-collapsed="true"] .sidebar-top {
+  padding: 0;
+  min-height: 40px;
+  justify-content: center;
+}
+.sidebar[data-collapsed="true"] .sidebar-top .collapse-toggle {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  margin: 0;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-2);
+  min-height: 28px;
+  height: 28px;
+}
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  background: transparent;
+  color: var(--accent);
+}
+.brand-mark svg { display: block; width: 20px; height: 20px; }
+.brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  white-space: nowrap;
+  opacity: 1;
+  line-height: 1;
+  transition: opacity .15s ease;
+}
+.brand-dot { color: var(--accent); }
+.sidebar[data-collapsed="true"] .brand-name { display: none; }
+.sidebar[data-collapsed="true"] .brand-version { display: none; }
+.sidebar[data-collapsed="true"] .sidebar-brand { justify-content: center; padding-left: 0; padding-right: 0; }
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.nav-item, .util-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: 0 12px;
+  min-height: 42px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+  transition: background .12s ease, color .12s ease;
+  position: relative;
+}
+.nav-item:hover, .util-item:hover {
+  background: var(--sidebar-hover);
+}
+.nav-item[aria-selected="true"] {
+  background: var(--sidebar-active);
+  color: var(--ink);
+}
+
+/* Unsaved-changes dot next to nav label */
+.nav-item.has-changes::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 0 0 0 rgba(26, 24, 21, 0.30);
+  animation: dirty-pulse 2s ease-in-out infinite;
+}
+@keyframes dirty-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(26, 24, 21, 0.22); }
+  50%      { box-shadow: 0 0 0 4px rgba(26, 24, 21, 0); }
+}
+.sidebar[data-collapsed="true"] .nav-item.has-changes::after {
+  right: auto;
+  top: 6px;
+  left: 28px;
+}
+
+.nav-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  color: currentColor;
+}
+.nav-icon svg { width: 100%; height: 100%; }
+.nav-label {
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity .15s ease;
+  flex: 1;
+}
+.sidebar[data-collapsed="true"] .nav-label { opacity: 0; pointer-events: none; }
+/* Collapsed sidebar (60px wide): hide the label entirely so the icon
+   centers in the narrow column instead of being pushed off-screen by
+   the still-laid-out (but invisible) label text. Same for the badge. */
+.sidebar[data-collapsed="true"] .nav-label,
+.sidebar[data-collapsed="true"] .nav-badge {
+  display: none;
+}
+
+.nav-badge {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: var(--border-soft);
+  color: var(--ink-muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+  transition: opacity .15s ease;
+}
+.sidebar[data-collapsed="true"] .nav-badge { opacity: 0; }
+.nav-item[aria-selected="true"] .nav-badge {
+  background: var(--bg-elev);
+  color: var(--ink-mid);
+}
+
+.sidebar-divider {
+  margin: var(--s-3) var(--s-2);
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-utility {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  padding-top: 2px;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+}
+/* Brand block at the bottom of the sidebar. Clickable: navigates to
+   About. Matches nav-item height so collapsed sidebar reads as a
+   uniform column of equally-sized icons. */
+.sidebar-brand-button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0 var(--s-2);
+  min-height: 28px;
+  height: 28px;
+  cursor: pointer;
+  border-radius: 4px;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  transition: background .12s;
+}
+.sidebar-brand-button[aria-selected="true"],
+.sidebar-brand-button[aria-selected="true"]:hover {
+  background: var(--sidebar-active);
+  font-weight: 500;
+}
+.sidebar-brand-button:hover { background: var(--sidebar-hover); }
+.sidebar-foot .brand-mark {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Lock the SVG box exactly to 14×14 so flex centering doesn't fight
+     the SVG's intrinsic dimensions; otherwise the mark drifts a couple
+     pixels low because <svg width=32 height=32> wants more vertical
+     space than the 14px row gives it. */
+  line-height: 0;
+}
+.sidebar-foot .brand-mark svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.sidebar-foot .brand-name {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+}
+.brand-version {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Top strip · single row, currently hosts only the collapse toggle on
+   the right. Matches the page-title-bar height so the topmost row of
+   the window reads as one unified band. */
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  min-height: 40px;
+  /* Sit flush above the first nav item — no extra breathing room
+     between the brand strip and the nav list. */
+  margin-bottom: 0;
+}
+.collapse-toggle {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ink);
+  transition: background .12s;
+  min-height: 0;
+  flex: 0 0 40px;
+}
+.collapse-toggle:hover { background: var(--sidebar-hover); }
+.collapse-toggle .nav-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+.sidebar[data-collapsed="true"] .sidebar-top {
+  justify-content: center;
+}
+
+/* chevron flips when the sidebar is collapsed; the rest is util-item styling */
+.collapse-toggle .nav-icon {
+  transition: transform .25s cubic-bezier(.4, 0, .2, 1);
+}
+.sidebar[data-collapsed="true"] .collapse-toggle .nav-icon {
+  transform: rotate(180deg);
+}
+
+/* Drag-to-resize handle. Sits absolutely against the sidebar's right
+   border so the cursor target spans the full height. 6px wide hit area
+   centered on the visible 1px border — easy to grab without bumping
+   into adjacent layout. */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+  /* Subtle hover indicator: deepens the border-right color on hover so the
+     user knows the edge is interactive. */
+  background: transparent;
+  transition: background .12s ease;
+}
+.sidebar-resize-handle:hover,
+body.is-resizing-sidebar .sidebar-resize-handle {
+  /* Wash the hit area in the accent color so the user knows the edge is
+     live and so the theme follows their accent choice. */
+  background: var(--accent-soft);
+}
+/* While dragging, freeze global cursor + suppress text selection so the
+   whole page tracks resize cleanly even if pointer leaves the handle. */
+body.is-resizing-sidebar {
+  cursor: col-resize !important;
+  user-select: none;
+}
+body.is-resizing-sidebar * {
+  cursor: col-resize !important;
+}
+
+/* === v1.0 codex-style sidebar tree === */
+
+/* Compact top nav: smaller height + smaller font, so the folder tree
+   below dominates. */
+/* Match the dimensions of .tree-folder-head + .tree-session below so
+   the top nav, the folder head, and the session rows form one visually
+   continuous column: same left padding (icon at x=8), same icon-label
+   gap, same row height, same corner radius. Without this the nav
+   icons sit 2px further right than the folder icons and the rows are
+   noticeably taller. */
+.sidebar-nav.compact .nav-item {
+  font-size: 13px;
+  padding: 4px 8px;
+  min-height: 28px;
+  gap: 8px;
+  border-radius: 4px;
+  position: relative;
+  letter-spacing: -0.005em;
+  transition: background .14s ease, color .14s ease;
+}
+.sidebar-nav.compact .nav-item:hover { background: var(--sidebar-hover); }
+.sidebar-nav.compact .nav-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+.sidebar[data-collapsed="true"] .sidebar-nav.compact .nav-item {
+  justify-content: center;
+  gap: 0;
+  padding: 8px 0;
+}
+.sidebar-nav.compact .nav-item.is-active {
+  background: var(--sidebar-active);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* Tree section header. Looks like codex: uppercase label, small +
+   button on hover. */
+.tree {
+  margin-top: var(--sidebar-section-gap);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Only vertical scroll when the tree is taller than the rail.
+     overflow-y alone leaves overflow-x at the default `auto`, which
+     gives us an unwanted horizontal scrollbar whenever a session
+     title (or its hover row padding) brushes the viewport edge.
+     overflow-x:hidden truncates with ellipsis instead — labels
+     already do `text-overflow: ellipsis`. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+  padding-bottom: var(--s-3);
+}
+.tree-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  /* Right padding matches .tree-session so the +-button glyph
+     right-aligns with the per-row tree-meta timestamp below. */
+  padding: 0 8px;
+  min-height: 24px;
+  height: 24px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--ink-mid);
+  /* No margin-bottom — let the parent .tree's `gap: 2px` carry the
+     space below, matching what sits between folder rows. The big gap
+     above "Sessions" still comes from .tree margin-top. */
+}
+.tree-head-action {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  /* Zero right padding so the glyph itself lands flush against the
+     row's 8px right inset — same column as the tree-meta text on
+     each session row. */
+  padding: 2px 0 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity .12s, background .12s;
+}
+.tree-head:hover .tree-head-action,
+.tree-head-action:focus-visible { opacity: 0.7; }
+.tree-head:hover .tree-head-action:hover { opacity: 1; background: var(--sidebar-hover); }
+.tree-head-action svg { width: 14px; height: 14px; }
+
+/* Folder grouping. Chevron rotates on expand. */
+.tree-folder {
+  display: flex;
+  flex-direction: column;
+}
+.tree-folder[data-dnd-over="true"] > .tree-folder-head {
+  box-shadow: 0 -2px 0 var(--accent) inset;
+}
+/* Session being dragged → folder is a drop target. Tint the folder
+   head + outline the whole folder so the user knows where it'll land,
+   independent of whether the folder is expanded or collapsed. */
+.tree-folder.is-session-drop-target {
+  border-radius: 6px;
+  outline: 1px dashed var(--ink-mid);
+  outline-offset: -2px;
+  background: var(--sidebar-hover);
+}
+.tree-session[draggable="true"] { cursor: pointer; }
+.tree-session[draggable="true"]:active { cursor: grabbing; }
+.tree-folder-head[draggable="true"] {
+  cursor: grab;
+}
+.tree-folder-head[draggable="true"]:active {
+  cursor: grabbing;
+}
+.tree-folder-head {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: var(--body);
+  min-height: 28px;
+}
+.tree-folder-head:hover { background: var(--sidebar-hover); }
+.tree-folder-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: var(--ink);
+}
+.tree-folder-icon svg { width: 100%; height: 100%; }
+.tree-folder-head.is-open .tree-folder-icon { color: var(--ink); }
+.tree-folder-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-folder-count {
+  font-size: 13px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  padding: 0 5px;
+  background: transparent;
+  border-radius: 999px;
+  opacity: 0.6;
+}
+.tree-folder-actions {
+  display: none;
+  gap: 2px;
+}
+/* Same touch carve-out as session-actions above — don't reveal folder
+   rename/delete on a tap-emulated hover. */
+@media (hover: hover) and (pointer: fine) {
+  .tree-folder-head:hover .tree-folder-actions { display: inline-flex; }
+}
+.tree-folder-action {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0.6;
+  border-radius: 3px;
+}
+.tree-folder-action:hover { opacity: 1; background: var(--sidebar-hover); }
+.tree-folder-action svg { width: 12px; height: 12px; }
+
+.tree-folder-body {
+  display: flex;
+  flex-direction: column;
+  /* No left padding here — the session rows themselves get padding-left
+     that lines their label up under the folder name. Keeping the bg
+     extend across the full sidebar width when selected/hovered. */
+  padding-left: 0;
+}
+.tree-empty {
+  font-size: 13px;
+  color: var(--ink);
+  padding: 3px 8px;
+  font-style: italic;
+  opacity: 0.5;
+}
+
+/* Session rows. Codex uses a colored dot + truncated label + tiny
+   timestamp on the right. */
+.tree-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Match the folder head: 8px left padding, then a 14px icon column
+     (the colored dot lives here, sized 8px and centered), then 8px gap
+     before the label — lines the label up exactly under the folder name. */
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: var(--body);
+  user-select: none;
+  transition: background .1s;
+  min-height: 28px;
+}
+.tree-session:hover { background: var(--sidebar-hover); }
+.tree-session.is-active {
+  background: var(--sidebar-active);
+  font-weight: 500;
+}
+/* Drop-line shown above the row when a sibling session is being
+   dragged over it for within-folder reorder. Top-only inset shadow
+   reads as a 2px insertion mark without shifting layout. */
+.tree-session.is-reorder-target {
+  position: relative;
+}
+.tree-session.is-reorder-target::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--ink-mid);
+  border-radius: 1px;
+  pointer-events: none;
+}
+/* Status dot · deliberately understated. The earlier version had a
+   green dot + soft glow + expanding halo pulse; in a sidebar with
+   eight running sessions it read as a row of strobing alerts. Now:
+   one 5px dot, no halo, no shadow, no animation. Color alone carries
+   running vs stopped. */
+.tree-dot {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tree-dot::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  transition: background .15s ease;
+}
+.tree-session.is-running .tree-dot::after {
+  background: var(--green);
+  /* Soft halo so the dot reads as "alive" even from across the sidebar.
+     Box-shadow uses currentColor isn't ideal here (the dot itself uses
+     background, not color), so we hardcode each state's halo color
+     below. */
+  box-shadow: 0 0 0 0 rgba(74, 138, 74, 0.55);
+  animation: tree-dot-breathe-idle 2.8s ease-in-out infinite;
+}
+/* Working = CLI is actively writing to its transcript (i.e. thinking
+   or printing tokens). Idle stays green + slow breathe; working flips
+   to blue + faster, more obvious breathe. */
+.tree-session.is-running.is-working .tree-dot::after {
+  background: var(--blue, #4a73a5);
+  box-shadow: 0 0 0 0 rgba(74, 115, 165, 0.65);
+  animation: tree-dot-breathe-working 1.4s ease-in-out infinite;
+}
+
+@keyframes tree-dot-breathe-idle {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(74, 138, 74, 0.45);
+    opacity: 0.85;
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(74, 138, 74, 0);
+    opacity: 1;
+  }
+}
+@keyframes tree-dot-breathe-working {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(74, 115, 165, 0.65);
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(74, 115, 165, 0);
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+/* Respect users who've asked for less motion — keep the color signal
+   but drop the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .tree-session.is-running .tree-dot::after,
+  .tree-session.is-running.is-working .tree-dot::after {
+    animation: none;
+    box-shadow: none;
+  }
+}
+.tree-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-session-actions {
+  display: none;
+  gap: 2px;
+  flex-shrink: 0;
+}
+/* Hover-only on real-pointer devices. On touch devices the first tap
+   emulates :hover (revealing rename/delete), which means the user has
+   to tap a second time to actually open the session. (hover: hover)
+   matches a real mouse / trackpad; (pointer: fine) further requires
+   precise cursor (so hybrid touch+mouse laptops with a stylus get
+   hover but pure-touch phones / tablets do not.) Phones keep the
+   timestamp visible and never reveal the action buttons here — they
+   can use the kebab in the session pane's top bar instead. */
+@media (hover: hover) and (pointer: fine) {
+  .tree-session:hover .tree-session-actions { display: inline-flex; }
+  .tree-session:hover .tree-meta { display: none; }
+}
+.tree-session-action {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0.6;
+  border-radius: 3px;
+}
+.tree-session-action:hover { opacity: 1; background: var(--sidebar-hover); }
+.tree-session-action svg { width: 12px; height: 12px; }
+.tree-meta {
+  font-size: 12px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  opacity: 0.55;
+  letter-spacing: 0.01em;
+}
