@@ -183,6 +183,30 @@ export function TerminalView({ terminalId, cliType }) {
 
     const host = hostRef.current;
     term.open(host);
+
+    // Answer OSC 10/11 (default foreground / background colour) queries with
+    // the LIVE theme colours. CLIs like claude probe the terminal background
+    // (`OSC 11 ; ? ST`) to pick a light- or dark-tuned syntax theme. xterm.js
+    // doesn't answer these by default, so claude assumes a dark terminal and
+    // paints near-white tokens (comments, f-string interpolations, call
+    // names) that vanish on our light background — the "字体颜色和背景重复"
+    // bug. VSCode answers them; we match. Reply format is the xterm/X11
+    // `rgb:RRRR/GGGG/BBBB` (16-bit-per-channel) the query expects.
+    const answerColorOsc = (code, getHex) => (data) => {
+      if (data !== '?') return false;               // only the query form
+      const hex = getHex();                         // '#rrggbb'
+      const ch = (i) => parseInt(hex.slice(i, i + 2), 16);
+      const w = (v) => (v * 257).toString(16).padStart(4, '0');  // 8-bit → 16-bit
+      const reply = `\x1b]${code};rgb:${w(ch(1))}/${w(ch(3))}/${w(ch(5))}\x07`;
+      const ws = wsRef.current;
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data: reply }));
+      return true;
+    };
+    try {
+      term.parser.registerOscHandler(11, answerColorOsc(11, () => themeRef.current.background));
+      term.parser.registerOscHandler(10, answerColorOsc(10, () => themeRef.current.foreground));
+    } catch {}
+
     // Robust fit scheduler. A single requestAnimationFrame works most
     // of the time but races on tab/session switches: the .tab-panel
     // just flipped from display:none to display:flex and although the

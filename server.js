@@ -291,15 +291,32 @@ function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [] }) {
   // extraArgs into the single quoted command string — otherwise extraArgs
   // would become args to the shell itself, not the wrapped command.
   // Re-resolve here when extraArgs is present so the quoting is correct.
+  // Force a session-scoped theme=auto for claude so its syntax/diff colours
+  // follow the ccsm terminal background (which we report via OSC 10/11 in
+  // TerminalView). claude's DEFAULT theme is *dark*, whose near-white tokens
+  // (comments, f-string interpolations, call names) vanish on our light
+  // terminal — the "字体颜色和背景重复" bug. --settings is session-scoped, so
+  // the user's global ~/.claude/settings.json is left untouched, and ccsm
+  // sessions Just Work on a fresh machine without anyone running /theme auto.
+  // (Injected here as an integration arg, like --session-id — not via the
+  // user-editable cli.args, so it reaches existing configs too.)
+  // Skip the injection entirely if the user already put their own --settings
+  // in cli.args — claude deep-merges multiple --settings (verified: later ones
+  // win per-key), so ours would silently override a theme they set on purpose.
+  // Respect the user's explicit choice instead.
+  const userHasSettings = (cli.args || []).some(
+    (a) => a === '--settings' || String(a).startsWith('--settings='));
+  const baseArgs = [...(cli.args || [])];
+  if (cli.type === 'claude' && !userHasSettings) baseArgs.push('--settings', '{"theme":"auto"}');
   const resolved = resolveCommand(
     cli.command,
-    [...(cli.args || []), ...extraArgs],
+    [...baseArgs, ...extraArgs],
     cli.shell || 'direct',
   );
   const { exe, prefixArgs, fallbackExe, consumesUserArgs } = resolved;
   const args = consumesUserArgs
     ? prefixArgs
-    : [...prefixArgs, ...(cli.args || []), ...extraArgs];
+    : [...prefixArgs, ...baseArgs, ...extraArgs];
   // Merge user-scope PATH from registry into the env we hand the PTY.
   // spawnEnv() also strips duplicate path-case keys so our override
   // doesn't get shadowed by the inherited `Path` from process.env.
