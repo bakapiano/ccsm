@@ -171,7 +171,7 @@ function LaunchHero() {
       onChange: (v, next) => {
         const presets = { claude:  { command: 'claude',  resumeArgs: '--continue',    resumeIdArgs: '--resume <id>', name: 'Claude Code' },
                           codex:   { command: 'codex',   resumeArgs: 'resume --last', resumeIdArgs: 'resume <id>',   name: 'OpenAI Codex' },
-                          copilot: { command: 'copilot', resumeArgs: '--continue',    resumeIdArgs: '--resume <id>', name: 'GitHub Copilot' },
+                          copilot: { command: 'copilot', resumeArgs: '--continue',    resumeIdArgs: '--session-id <id>', name: 'GitHub Copilot' },
                           other:   {} }[v] || {};
         const patch = {};
         if (presets.resumeArgs != null) patch.resumeArgs = presets.resumeArgs;

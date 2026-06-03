@@ -281,7 +281,7 @@ function quoteForCmd(s) {
   return s;
 }
 
-function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [] }) {
+function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [], theme }) {
   if (!webTerminal.available) {
     const e = new Error('node-pty unavailable · cannot spawn web terminal');
     e.code = 'PTY_UNAVAILABLE';
@@ -321,6 +321,16 @@ function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [] }) {
   // spawnEnv() also strips duplicate path-case keys so our override
   // doesn't get shadowed by the inherited `Path` from process.env.
   const env = spawnEnv(cli.env);
+  // Tell background-aware CLIs which way the ccsm terminal is painted, so
+  // their light/dark auto-detection matches it. COLORFGBG (fg;bg ANSI indices)
+  // is the de-facto signal that codex (its DiffTheme probes it), copilot, and
+  // claude all read — bg 15 = light, 0 = dark. claude additionally gets OSC
+  // 10/11 answers + --settings auto; this covers codex/copilot, which detect
+  // via COLORFGBG, not OSC. The frontend passes its resolved theme on spawn;
+  // a theme switch is picked up on the next resume.
+  if (theme === 'light' || theme === 'dark') {
+    env.COLORFGBG = theme === 'light' ? '0;15' : '15;0';
+  }
   const trySpawn = (executable) => webTerminal.spawn({
     id: sessionId,
     command: executable,
@@ -849,12 +859,14 @@ app.post('/api/sessions/new', async (req, res) => {
         cliSessionId: preAssignedId || undefined,
       });
       try {
+        const themeArgs = await codexThemeArgs(cli, req.body && req.body.theme);
         const entry = spawnCliSession({
           cli,
           cwd: workspace.path,
           sessionId: record.id,
           meta: { title: workspace.name, workspace: workspace.name, cwd: workspace.path },
-          extraArgs: newSessionArgs,
+          extraArgs: [...themeArgs, ...newSessionArgs],
+          theme: req.body && req.body.theme,
         });
         await persistedSessions.markRunning(record.id, entry.meta.pid);
         launched = { id: record.id, pid: entry.meta.pid, cliId: cli.id };
@@ -983,13 +995,15 @@ app.post('/api/sessions/:id/resume', asyncH(async (req, res) => {
     // pre-assignment refactor every ccsm-launched session has one (via
     // newSessionIdArgs flag or the codex seed trick), and adopted
     // sessions inherit theirs from the disk scan.
+    const themeArgs = await codexThemeArgs(cli, req.body && req.body.theme);
     const extraArgs = buildResumeArgs(cli, record);
     const entry = spawnCliSession({
       cli,
       cwd: record.cwd,
       sessionId: record.id,
       meta: { title: record.title || record.workspace, workspace: record.workspace, cwd: record.cwd },
-      extraArgs,
+      extraArgs: [...themeArgs, ...extraArgs],
+      theme: req.body && req.body.theme,
     });
     await persistedSessions.markRunning(record.id, entry.meta.pid);
     res.json({ launched: { id: record.id, pid: entry.meta.pid, cliId: cli.id } });
@@ -997,6 +1011,31 @@ app.post('/api/sessions/:id/resume', asyncH(async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 }));
+
+// codex-only: when the ccsm terminal is in LIGHT mode, inject a session-scoped
+// `-c tui.theme=ccsm-light`. codex's diff theme detection (default_bg()) is
+// compiled out on Windows and always falls back to a DARK diff palette, which
+// reads poorly on a white terminal — and it ignores COLORFGBG/OSC. The only
+// lever is a syntax theme whose markup.inserted/deleted scopes carry light
+// backgrounds (they override the diff palette at true-color level). We ship
+// that theme (ccsm-light.tmTheme), copy it into the codex home, and point
+// tui.theme at it. Returns the args to prepend (before `resume <id>` so the
+// global -c lands before the subcommand), or [] when not applicable. Skipped
+// in dark mode (codex's dark default is already correct on a dark terminal)
+// and when the user configured their own tui.theme in cli.args.
+async function codexThemeArgs(cli, theme) {
+  if (!cli || cli.type !== 'codex' || theme !== 'light') return [];
+  const args = cli.args || [];
+  const userSet = args.some((a, i) =>
+    String(a).includes('tui.theme') || (a === '-c' && String(args[i + 1] || '').includes('tui.theme')));
+  if (userSet) return [];
+  try {
+    const { probeCodexHome, ensureCodexLightTheme } = require('./lib/codexSeed');
+    const home = await probeCodexHome({ command: cli.command, shell: cli.shell });
+    if (!(await ensureCodexLightTheme(home))) return [];
+    return ['-c', 'tui.theme="ccsm-light"'];
+  } catch { return []; }
+}
 
 // Build the args appended on resume: substitute the captured upstream
 // session UUID into cli.resumeIdArgs (e.g. ['--resume', '<id>'] →

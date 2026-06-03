@@ -282,7 +282,11 @@ export function resumeSession(sessionId) {
   const cached = resumeInFlight.get(sessionId);
   if (cached) return cached;
   const p = (async () => {
-    const r = await api('POST', `/api/sessions/${sessionId}/resume`);
+    const r = await api('POST', `/api/sessions/${sessionId}/resume`, {
+      // Resolved terminal theme → backend sets a matching COLORFGBG so the
+      // CLI's light/dark auto-detection follows the ccsm terminal.
+      theme: document.documentElement.dataset.theme,
+    });
     await loadSessions();
     return r.launched;
   })();

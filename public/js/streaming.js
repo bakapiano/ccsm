@@ -60,10 +60,13 @@ function applyEvent(ev, rootId) {
 // onMeta(event) is called for workspace/launched/done events so the caller can
 // surface them in their own result text area.
 export async function streamNewSession(body, { progressRootId = 'newSessionProgress', onMeta } = {}) {
+  // Pass the resolved terminal theme so the backend can hand CLIs a matching
+  // COLORFGBG (light/dark detection). dataset.theme is set by applyTheme().
+  const theme = document.documentElement.dataset.theme;
   const res = await fetch(httpBase() + '/api/sessions/new', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, theme }),
   });
   if (!res.ok && res.headers.get('content-type')?.startsWith('application/json')) {
     const j = await res.json();

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- ccsm-light: a GitHub-Light-flavoured codex syntax theme whose
+     markup.inserted / markup.deleted scopes carry LIGHT diff backgrounds.
+     ccsm injects this (via `-c tui.theme=ccsm-light`) when the ccsm terminal
+     is in light mode, because codex's own diff theme detection (default_bg())
+     is compiled out on Windows and always falls back to a DARK diff palette —
+     which buries readability on a white terminal. At true-color level codex
+     lets a syntax theme's markup scope backgrounds override that default, so
+     these two scopes are what flip the diff to light. -->
+<plist version="1.0">
+<dict>
+  <key>name</key>
+  <string>ccsm-light</string>
+  <key>settings</key>
+  <array>
+    <dict>
+      <key>settings</key>
+      <dict>
+        <key>background</key><string>#ffffff</string>
+        <key>foreground</key><string>#1f2328</string>
+        <key>caret</key><string>#1f2328</string>
+        <key>selection</key><string>#b6d6fd</string>
+        <key>lineHighlight</key><string>#eaeef2</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>comment, punctuation.definition.comment</string>
+      <key>settings</key><dict><key>foreground</key><string>#6e7781</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>string, string.quoted, punctuation.definition.string</string>
+      <key>settings</key><dict><key>foreground</key><string>#0a3069</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>constant.numeric, constant.language, constant.character, constant.other</string>
+      <key>settings</key><dict><key>foreground</key><string>#0550ae</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>keyword, keyword.control, keyword.operator, storage, storage.type, storage.modifier</string>
+      <key>settings</key><dict><key>foreground</key><string>#cf222e</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>entity.name.function, support.function, meta.function-call</string>
+      <key>settings</key><dict><key>foreground</key><string>#8250df</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>entity.name.type, entity.name.class, entity.name.namespace, support.type, support.class</string>
+      <key>settings</key><dict><key>foreground</key><string>#953800</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>variable, variable.other, variable.parameter</string>
+      <key>settings</key><dict><key>foreground</key><string>#1f2328</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>entity.name.tag, support.type.property-name</string>
+      <key>settings</key><dict><key>foreground</key><string>#116329</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>markup.inserted, markup.inserted.diff, meta.diff.header.to-file</string>
+      <key>settings</key>
+      <dict>
+        <key>background</key><string>#e6ffec</string>
+        <key>foreground</key><string>#1a7f37</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>markup.deleted, markup.deleted.diff, meta.diff.header.from-file</string>
+      <key>settings</key>
+      <dict>
+        <key>background</key><string>#ffebe9</string>
+        <key>foreground</key><string>#cf222e</string>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

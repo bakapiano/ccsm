@@ -47,7 +47,7 @@ function tokenizeCliArgs(v) {
 const CLI_TYPE_DEFAULTS = {
   claude:  { command: 'claude',  resumeIdArgs: '--resume <id>', newSessionIdArgs: '--session-id <id>' },
   codex:   { command: 'codex',   resumeIdArgs: 'resume <id>',   newSessionIdArgs: 'resume <id>' },
-  copilot: { command: 'copilot', resumeIdArgs: '--resume <id>', newSessionIdArgs: '--session-id <id>' },
+  copilot: { command: 'copilot', resumeIdArgs: '--session-id <id>', newSessionIdArgs: '--session-id <id>' },
   other:   { resumeIdArgs: '', newSessionIdArgs: '' },
 };
 
