@@ -87,7 +87,7 @@ function cliFieldsFor({ creating } = {}) {
       },
     },
     { key: 'name', label: 'Name', placeholder: 'My CLI', required: true },
-    { key: 'command', label: 'Command', mono: true, placeholder: 'ccp / claude / ...', required: true },
+    { key: 'command', label: 'Command', mono: true, placeholder: 'claude / codex / ...', required: true },
     { key: 'args', label: 'Args', mono: true, placeholder: '',
       hint: 'Used on every launch. Shell-style quoting: -Model "claude-opus-4-8" or -Path \'C:\\some dir\\bin\'.' },
     { key: 'newSessionIdArgs', label: 'New session id args', mono: true, placeholder: '--session-id <id>',

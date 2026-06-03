@@ -304,6 +304,16 @@ export function TerminalView({ terminalId, cliType }) {
     vv?.addEventListener?.('resize', onVisualResize);
     vv?.addEventListener?.('scroll', onVisualResize);
 
+    // Mobile touch scrolling is handled NATIVELY: responsive.css makes the
+    // .xterm-screen layer pointer-transparent so finger drags fall through to
+    // xterm's own scrollable .xterm-viewport (real momentum, never drops
+    // mid-flick the way a JS-intercepted scroll does). The only casualty is
+    // tap-to-focus — with the screen ignoring pointer events a tap no longer
+    // reaches xterm's focus path, so the soft keyboard wouldn't open. Re-focus
+    // on tap explicitly. A drag emits no click, so this fires only on real taps.
+    const onHostClick = () => { try { term.focus(); } catch {} };
+    if (isMobile) host.addEventListener('click', onHostClick);
+
     // Tab-switch refresh. The terminal lives inside a .tab-panel which gets
     // display:none when another tab is active. WebGL renderers keep a glyph
     // texture atlas in GPU memory; when the canvas hides + redisplays at a
@@ -440,27 +450,18 @@ export function TerminalView({ terminalId, cliType }) {
     };
     document.addEventListener('keydown', onShiftEnter, true);
 
-    // IME fix: xterm positions .xterm-helper-textarea via `left: <col-px>`
-    // following the cursor. When the cursor is near the right edge and the
-    // user starts composing (e.g. Chinese pinyin), the textarea + native
-    // composition popup grow with the composed string and overflow the
-    // terminal host — which visually pushes the layout right. We can't cap
-    // width / change wrapping (that breaks Chromium's IME event flow), but
-    // we CAN re-anchor the textarea to the right edge while composing so
-    // it grows leftward instead. Toggling a class on the host is enough;
-    // the CSS in terminals.css does the rest.
+    // While composing (IME), hide the terminal's own cursor so the blinking
+    // bar doesn't sit on top of the composition box (terminals.css paints the
+    // box at the cursor, showing the in-progress pinyin). The cursor is drawn
+    // on the canvas from theme.cursor, so CSS can't touch it: swap the theme
+    // to a transparent cursor AND issue the DECTCEM hide sequence (the theme
+    // swap alone doesn't reliably stop the blink frame loop). Restore on end.
+    // Use the live theme (themeRef) so the restore matches current light/dark.
     const onCompStart = () => {
-      if (host) host.classList.add('is-composing');
-      // The terminal cursor is rendered on canvas (theme.cursor), so CSS
-      // can't hide it. Theme swap alone doesn't reliably stop the blink
-      // frame loop, so also issue the DECTCEM hide sequence which the
-      // renderer honours immediately. Use the live theme (themeRef) so the
-      // restore on compEnd matches whatever light/dark is current.
       try { term.options.theme = { ...themeRef.current, cursor: 'transparent', cursorAccent: 'transparent' }; } catch {}
       try { term.write('\x1b[?25l'); } catch {}
     };
     const onCompEnd   = () => {
-      if (host) host.classList.remove('is-composing');
       try { term.options.theme = themeRef.current; } catch {}
       try { term.write('\x1b[?25h'); } catch {}
     };
@@ -482,6 +483,7 @@ export function TerminalView({ terminalId, cliType }) {
       if (panelMo) panelMo.disconnect();
       vv?.removeEventListener?.('resize', onVisualResize);
       vv?.removeEventListener?.('scroll', onVisualResize);
+      if (isMobile) host.removeEventListener('click', onHostClick);
       closedByUs = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       try { wsRef.current?.close(); } catch {}

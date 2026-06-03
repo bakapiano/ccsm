@@ -66,6 +66,22 @@
      the FAB sits over the terminal corner — leave it; the user can
      scroll the terminal independently. */
 
+  /* Touch scrolling: drive xterm's OWN scrollable .xterm-viewport natively
+     so finger drags get real momentum and never "drop" mid-flick. A
+     JS-intercepted scroll can't: the moment Chrome's compositor decides the
+     drag is a vertical pan it cancels the touch sequence, so the handler
+     only ever sees the opening frames — the "滑一点就断触" symptom. The
+     catch is that the .xterm-screen layer (DOM rows on mobile) sits ON TOP
+     of the viewport and swallows every touch; only the thin scrollbar strip
+     at the right edge reached the viewport, which is exactly the
+     "中间滑不动、侧边能滑" report. Make the screen transparent to pointers so
+     the drag lands on the viewport underneath; pan-y marks it a vertical
+     scroller so the compositor scrolls it directly. (Tap-to-focus is then
+     re-added in JS — see TerminalView — since taps no longer reach xterm's
+     own focus path.) */
+  .app.is-mobile .terminal-host .xterm-screen { pointer-events: none; }
+  .app.is-mobile .terminal-host .xterm-viewport { touch-action: pan-y; }
+
   /* Long inline code (URLs, paths) in the About / Remote bodies break
      out of card edges on a narrow viewport. Let them wrap on any
      character instead of stretching the line. */

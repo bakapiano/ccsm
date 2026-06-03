@@ -1079,7 +1079,10 @@
 /* === Popover + Picker ============================================== */
 .popover-panel {
   position: fixed;
-  z-index: 80;
+  /* Above the modal backdrop (200) so pickers opened from inside a modal
+     — e.g. "Import as" in the adopt modal — float on top, not behind it.
+     Still below toasts (1200). */
+  z-index: 250;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1294,59 +1297,66 @@
 }
 
 /* --- Adopt (import existing CLI session) modal --------------------- */
-.adopt { display: flex; flex-direction: column; gap: 12px; }
+/* Fills the (flush, scrolling) modal body: a pinned head (tabs + tools)
+   and a scrolling list below it; pagination lives in the modal footer. */
+.adopt { display: flex; flex-direction: column; min-height: 360px; }
 
+.adopt-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 18px 12px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* Underline tab bar (was solid pills) — calmer, matches the app. */
 .adopt-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  gap: 2px;
 }
 .adopt-tab {
+  appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid transparent;
+  gap: 7px;
+  padding: 6px 11px 8px;
   background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
   font: inherit;
-  color: var(--ink-mid);
-  cursor: pointer;
-  font-size: 12.5px;
-  transition: background .12s ease, color .12s ease, border-color .12s ease;
-}
-.adopt-tab:hover { color: var(--ink); background: var(--bg); }
-.adopt-tab.is-active {
-  background: var(--ink);
-  border-color: var(--ink);
-  /* var(--bg-elev), not #fff — the slab is var(--ink), which is LIGHT in
-     dark mode, so white text would be invisible. --bg-elev tracks it. */
-  color: var(--bg-elev);
+  font-size: 13px;
   font-weight: 500;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: color .12s ease, border-color .12s ease;
 }
-.adopt-tab.is-active .adopt-tab-count {
-  background: color-mix(in srgb, var(--bg-elev) 22%, transparent);
-  color: var(--bg-elev);
+.adopt-tab:hover { color: var(--ink); }
+.adopt-tab.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
 }
 .adopt-tab-icon { display: inline-flex; width: 16px; height: 16px; }
-.adopt-tab-icon svg { width: 100%; height: 100%; }
+.adopt-tab-icon svg, .adopt-tab-icon img { width: 100%; height: 100%; }
 .adopt-tab-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
+  min-width: 17px;
   height: 16px;
   padding: 0 5px;
   border-radius: 999px;
-  background: var(--bg);
+  background: var(--ui-bg);
   color: var(--ink-mid);
   font-size: 10.5px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.adopt-icon-btn {
+.adopt-rescan {
   appearance: none;
   margin-left: auto;
   display: inline-flex;
@@ -1357,12 +1367,13 @@
   padding: 0;
   border: 1px solid var(--border);
   background: var(--bg-elev);
-  color: var(--ink-mid);
+  color: var(--ink-muted);
   border-radius: 8px;
   cursor: pointer;
   transition: color .12s ease, border-color .12s ease, transform .3s ease;
 }
-.adopt-icon-btn:hover { color: var(--ink); border-color: var(--ink-faint); transform: rotate(90deg); }
+.adopt-rescan:hover { color: var(--ink); border-color: var(--ink-faint); transform: rotate(90deg); }
+.adopt-rescan svg { width: 14px; height: 14px; }
 
 /* Tools row: CLI picker pill + search input */
 .adopt-tools {
@@ -1446,12 +1457,10 @@
 .adopt-search-clear:hover { color: var(--ink); background: var(--bg); }
 .adopt-search-clear svg { width: 11px; height: 11px; }
 
-.adopt-body {
-  min-height: 240px;
-  max-height: 56vh;
-  overflow: auto;
-  margin: 0 -2px;
-  padding: 0 2px;
+/* The list scrolls inside the modal body now (not its own overflow box);
+   this is just the padded wrapper. */
+.adopt-list {
+  padding: 12px 18px 16px;
 }
 .adopt-empty {
   padding: 48px 12px;
@@ -1487,7 +1496,7 @@
 }
 @keyframes adopt-spin { to { transform: rotate(360deg); } }
 
-.adopt-list {
+.adopt-rows {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1498,13 +1507,26 @@
 .adopt-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 11px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   background: var(--bg-elev);
   border-radius: 10px;
   transition: border-color .12s ease, background .12s ease, transform .12s ease;
 }
+.adopt-row-icon {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+}
+.adopt-row-icon svg, .adopt-row-icon img { width: 17px; height: 17px; }
 .adopt-row:hover {
   border-color: var(--ink-faint);
   transform: translateY(-1px);
@@ -1514,14 +1536,50 @@
   background: var(--bg);
 }
 .adopt-row.is-adopted:hover { transform: none; border-color: var(--border); }
-/* A session that a cli process currently has open. Subtle green tint +
-   left bar to pull the eye, plus a "● live" pill before the title. */
-.adopt-row.is-active {
-  border-color: rgba(74, 138, 74, 0.45);
-  background: linear-gradient(180deg, rgba(74, 138, 74, 0.05), var(--bg-elev));
-  box-shadow: inset 3px 0 0 0 var(--green);
+/* A session a cli process currently has open. Quiet treatment: the row
+   itself stays neutral (many rows can be live at once — a wall of green
+   slabs is noise) and the "alive" signal rides on the icon as a small
+   green presence dot, the way a chat avatar shows online. The icon tile
+   picks up a faint green tint + green glyph so the eye still lands. */
+.adopt-row.is-active .adopt-row-icon {
+  border-color: rgba(74, 138, 74, 0.4);
+  background: rgba(74, 138, 74, 0.1);
+  color: var(--green);
 }
-.adopt-row.is-active:hover { border-color: rgba(74, 138, 74, 0.7); }
+/* Static dot — punched out of the card with a bg-elev ring so it reads as
+   a badge sitting on the icon corner. */
+.adopt-row.is-active .adopt-row-icon::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--green);
+  border: 2px solid var(--bg-elev);
+}
+/* Soft presence pulse — a ring expanding off the dot. Opacity-animated on
+   its own layer so it stays GPU-cheap even with a dozen live rows (the old
+   box-shadow pulse pegged the paint thread). */
+.adopt-row.is-active .adopt-row-icon::before {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--green);
+  opacity: 0;
+  animation: adopt-live-pulse 1.9s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+@keyframes adopt-live-pulse {
+  0%   { opacity: 0.55; transform: scale(0.8); }
+  70%, 100% { opacity: 0; transform: scale(2.6); }
+}
 .adopt-row-main { flex: 1 1 auto; min-width: 0; }
 .adopt-row-title {
   font-size: 13px;
@@ -1536,59 +1594,29 @@
   gap: 8px;
 }
 .adopt-row-untitled { color: var(--ink-faint); font-weight: 400; font-style: italic; }
+/* Minimal caption next to the title — the dot carries the signal, this
+   just names it. No pill, no border, no ring. */
 .adopt-row-live {
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--green);
-  background: rgba(74, 138, 74, 0.12);
-  border: 1px solid rgba(74, 138, 74, 0.35);
   cursor: default;
-  position: relative;
-  /* Pulse is implemented via opacity on a pseudo-element instead of
-     animating box-shadow — opacity is GPU-composited, box-shadow forces
-     a paint every frame. With 12+ live rows the old version pegged the
-     paint thread and made the whole modal feel stuck. */
-}
-.adopt-row-live::before {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border-radius: 999px;
-  border: 1px solid rgba(74, 138, 74, 0.5);
-  opacity: 0;
-  animation: adopt-live-pulse 1.8s ease-in-out infinite;
-  pointer-events: none;
-}
-@keyframes adopt-live-pulse {
-  0%, 100% { opacity: 0.6; transform: scale(0.95); }
-  50%      { opacity: 0;   transform: scale(1.15); }
 }
 
-.adopt-loadmore {
-  display: flex;
-  justify-content: center;
-  padding: 12px 0 4px;
-}
-.adopt-loadmore-done,
-.adopt-loadmore-hint {
-  font-size: 11.5px;
-  color: var(--ink-muted);
-  font-style: italic;
+/* Footer pagination (rendered into .modal-foot): ‹ Prev · X–Y of Z · Next ›.
+   The flex:1 info pushes the two buttons to the edges and centres the count. */
+.adopt-pager-info {
+  flex: 1;
   text-align: center;
-}
-.adopt-loadmore .action {
   font-size: 12px;
-  font-family: var(--mono);
+  color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
 }
+.adopt-pager-btn { min-width: 78px; gap: 4px; }
+.adopt-pager-btn svg { width: 13px; height: 13px; }
 .adopt-row-meta {
   display: flex;
   align-items: center;

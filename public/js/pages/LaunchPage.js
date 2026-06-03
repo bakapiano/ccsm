@@ -182,7 +182,7 @@ function LaunchHero() {
       },
     },
     { key: 'name', label: 'Name', placeholder: 'My CLI', required: true },
-    { key: 'command', label: 'Command', mono: true, placeholder: 'ccp / claude / ...', required: true },
+    { key: 'command', label: 'Command', mono: true, placeholder: 'claude / codex / ...', required: true },
     { key: 'args', label: 'Args (space-separated)', mono: true, placeholder: '' },
     { key: 'resumeArgs', label: 'Resume args (fallback)', mono: true, placeholder: '--continue',
       hint: 'Used when ccsm has no captured upstream session id.' },

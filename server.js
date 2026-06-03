@@ -222,7 +222,7 @@ function pickCli(cfg, requestedId) {
 //   'direct' — pty.spawn(command, args). Real .exe / absolute paths only.
 //              Won't find pwsh aliases / functions.
 //   'pwsh'   — wrap in `pwsh.exe -NoLogo -NoExit -Command "& { cmd args }"`.
-//              Loads $PROFILE → pwsh aliases / functions (`ccp`, `cxp`) work.
+//              Loads $PROFILE → pwsh aliases / functions work.
 //              Falls back to powershell.exe (5.x) if pwsh.exe absent.
 //   'cmd'    — wrap in `cmd.exe /d /s /c "cmd args"`. Resolves doskey aliases
 //              and PATH-only names without pwsh dependency.

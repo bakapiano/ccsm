@@ -125,49 +125,37 @@
   min-height: 0;
   width: 100%;
   /* IME composition (Chinese/Japanese pinyin) lives in absolutely-positioned
-     .xterm-helper-textarea + .composition-view that grow with the composed
-     string. Near the right edge they overflow the viewport and trigger a
-     horizontal scrollbar that visually "pushes" the layout. Clip here so
-     the overflow is silently absorbed instead of expanding the page.
-     Do NOT touch the textarea/composition-view's own text properties —
-     xterm relies on their single-line behaviour to keep IME events firing
-     correctly (forcing pre-wrap / break-all eats compositionupdate events
+     .xterm-helper-textarea + .composition-view at the cursor. xterm 5.5 caps
+     the view's width to the remaining columns, but as a belt-and-braces guard
+     we still clip here so any residual right-edge overflow is absorbed rather
+     than expanding the page (it used to trigger a horizontal scrollbar that
+     "pushed" the layout). Do NOT touch the textarea/composition-view's own
+     text properties — xterm relies on their single-line behaviour to keep IME
+     events firing (forcing pre-wrap / break-all eats compositionupdate events
      in Chromium and Chinese input stops working entirely). */
   overflow: hidden;
   contain: layout;
 }
-/* While the user is composing (IME), pin the helper textarea to the right
-   edge of the terminal so it grows leftward instead of pushing the layout
-   rightward. Only touches positioning — NOT width / wrap / max-width, which
-   would break Chromium's compositionupdate event flow and stop Chinese
-   input from working. The class is toggled by TerminalView.js. */
-.terminal-host.is-composing .xterm-helper-textarea {
-  left: auto !important;
-  right: 0 !important;
-  text-align: right;
-  /* xterm un-hides the textarea during composition so the user can see the
-     composed string inline. We've moved it to the right edge to stop it
-     pushing layout — but that means the composed pinyin would now visibly
-     appear on the right. Hide its glyphs (caret + text) so the user only
-     sees the OS-native IME candidate popup, which floats independently
-     and is unaffected. */
-  color: transparent !important;
-  caret-color: transparent !important;
-  background: transparent !important;
-  text-shadow: none !important;
-}
-/* xterm also overlays a .composition-view (a small box at the cursor with
-   the in-progress string + a gold caret using THEME.cursor). We can't
-   display:none it — Chromium needs it in the layout tree to keep the IME
-   compositionupdate events flowing — but we can make it visually invisible
-   while leaving it laid out. */
+/* IME composition box. While you're typing pinyin — before committing the
+   Chinese characters — xterm writes the in-progress string into
+   .composition-view at the cursor. VSCode's terminal shows this box in the
+   terminal's own colours; we do the same. An earlier version hid it outright
+   (opacity:0) to dodge a layout push, which is why the typed letters were
+   invisible — but the host's overflow:hidden + contain:layout above already
+   absorb any overflow, and xterm caps the box width, so hiding it was both
+   unnecessary and the bug. The helper textarea is left exactly where xterm
+   puts it (at the cursor, opacity:0) so the OS IME candidate popup anchors
+   correctly — we no longer move or restyle it. */
 .terminal-host .composition-view {
-  opacity: 0 !important;
-  color: transparent !important;
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-  pointer-events: none;
+  /* !important to beat xterm.css's own `.xterm .composition-view`
+     (#000/#FFF, same specificity, loaded after us). var() still re-resolves
+     per theme, so this tracks light/dark automatically. */
+  background: var(--term-surface) !important;
+  color: var(--term-on) !important;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 3px;
+  z-index: 5;
 }
 /* Don't override xterm's background — its renderer (canvas/WebGL) assumes
    an opaque surface and ghosts on scroll if we force transparent. The
