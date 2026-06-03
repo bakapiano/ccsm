@@ -1,0 +1,607 @@
+/* Terminals tab · left rail (active sessions) + right pane (xterm host) */
+
+/* Terminal-chrome palette. The xterm canvas itself is painted from a JS
+   theme object (TerminalView.js); these vars colour everything AROUND it —
+   the pane backdrop, the tab strip, the empty/displaced states, and the
+   mobile key bar — so the chrome tracks the canvas. Light defaults here;
+   dark.css overrides under [data-theme="dark"] with the original dark set.
+   Keep the two in lockstep with the JS THEME_LIGHT / THEME_DARK objects. */
+:root {
+  /* VSCode Light+ neutral panel grays, to sit seamlessly around the
+     white VSCode terminal canvas (THEME_LIGHT). */
+  --term-surface:       #ffffff;   /* matches THEME_LIGHT.background */
+  --term-on:            #333333;
+  --term-on-dim:        rgba(51, 51, 51, 0.70);
+  --term-on-faint:      rgba(51, 51, 51, 0.45);
+  --term-heading:       #1a1a1a;
+  --term-prompt:        #cd3131;   /* VSCode ansiRed */
+  --term-cta-bg:        #2c2c2c;
+  --term-cta-fg:        #ffffff;
+  --term-cta-bg-hover:  #000000;
+  --term-tabstrip:      #f0f0f0;
+  --term-tab:           #e4e4e4;
+  --term-tab-hover:     #d8d8d8;
+  --term-tab-text:      rgba(51, 51, 51, 0.70);
+  --term-keybar-bg:     #f0f0f0;
+  --term-key-fg:        #333333;
+  --term-key-bg:        rgba(0, 0, 0, 0.05);
+  --term-key-border:    rgba(0, 0, 0, 0.14);
+  --term-key-active-bg: rgba(0, 0, 0, 0.12);
+  --term-key-active-border: rgba(0, 0, 0, 0.28);
+  --term-key-hint:      rgba(0, 0, 0, 0.5);
+  --term-pop-bg:        #f6f6f6;
+  --term-pop-border:    rgba(0, 0, 0, 0.16);
+}
+
+.terminals-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: var(--s-4);
+  /* viewport minus page header + footer + padding; lets xterm fill height */
+  height: calc(100vh - 220px);
+  min-height: 480px;
+}
+
+.terminals-rail {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--s-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+.terminals-rail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--s-2) var(--s-3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--s-2);
+}
+
+/* button row showing one terminal in the rail */
+.terminal-row {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-mid);
+  font-family: var(--body);
+  font-size: 13px;
+  transition: background .12s ease, color .12s ease;
+}
+.terminal-row:hover { background: var(--bg); color: var(--ink); }
+.terminal-row.is-active {
+  background: var(--sidebar-active);
+  color: var(--ink);
+}
+.terminal-row-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-weight: 500;
+}
+.terminal-row-meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.terminal-row-actions { display: inline-flex; }
+.terminal-row .action.tiny.danger {
+  padding: 1px 7px;
+  font-size: 11px;
+  min-width: 0;
+}
+
+/* right pane — full-height xterm host */
+.terminals-main {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--s-3);
+  overflow: hidden;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  /* IME composition (Chinese/Japanese pinyin) lives in absolutely-positioned
+     .xterm-helper-textarea + .composition-view at the cursor. xterm 5.5 caps
+     the view's width to the remaining columns, but as a belt-and-braces guard
+     we still clip here so any residual right-edge overflow is absorbed rather
+     than expanding the page (it used to trigger a horizontal scrollbar that
+     "pushed" the layout). Do NOT touch the textarea/composition-view's own
+     text properties — xterm relies on their single-line behaviour to keep IME
+     events firing (forcing pre-wrap / break-all eats compositionupdate events
+     in Chromium and Chinese input stops working entirely). */
+  overflow: hidden;
+  contain: layout;
+}
+/* IME composition box. While you're typing pinyin — before committing the
+   Chinese characters — xterm writes the in-progress string into
+   .composition-view at the cursor. VSCode's terminal shows this box in the
+   terminal's own colours; we do the same. An earlier version hid it outright
+   (opacity:0) to dodge a layout push, which is why the typed letters were
+   invisible — but the host's overflow:hidden + contain:layout above already
+   absorb any overflow, and xterm caps the box width, so hiding it was both
+   unnecessary and the bug. The helper textarea is left exactly where xterm
+   puts it (at the cursor, opacity:0) so the OS IME candidate popup anchors
+   correctly — we no longer move or restyle it. */
+.terminal-host .composition-view {
+  /* !important to beat xterm.css's own `.xterm .composition-view`
+     (#000/#FFF, same specificity, loaded after us). var() still re-resolves
+     per theme, so this tracks light/dark automatically. */
+  background: var(--term-surface) !important;
+  color: var(--term-on) !important;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 3px;
+  z-index: 5;
+}
+/* Don't override xterm's background — its renderer (canvas/WebGL) assumes
+   an opaque surface and ghosts on scroll if we force transparent. The
+   theme object in TerminalView.js already paints #faf9f5 to match the
+   surrounding card. */
+.terminal-host .xterm-viewport {
+  scrollbar-width: thin;
+}
+
+.terminal-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.terminal-empty-page { width: 100%; }
+
+/* === v1.0 session pane === */
+
+.sessions-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  /* Decorative faint hairline grid, only in this empty state — adds
+     editorial atmosphere without affecting any real content view. */
+  background-image:
+    linear-gradient(to right, rgba(216, 212, 198, 0.5) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(216, 212, 198, 0.5) 1px, transparent 1px);
+  background-size: 56px 56px;
+  background-position: center;
+  position: relative;
+}
+.sessions-empty::before,
+.sessions-empty::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.sessions-empty::before {
+  background: radial-gradient(ellipse at center, transparent 0%, var(--bg) 75%);
+}
+.sessions-empty-card {
+  text-align: center;
+  padding: var(--s-12) var(--s-10);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  max-width: 440px;
+  position: relative;
+  z-index: 1;
+  box-shadow: var(--shadow-lg);
+}
+.sessions-empty-card::before {
+  content: "·  EMPTY  ·";
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  color: var(--ink-faint);
+  margin-bottom: var(--s-4);
+}
+.sessions-empty-card h2 {
+  margin: 0 0 var(--s-3);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  color: var(--ink);
+}
+.sessions-empty-card p {
+  margin: 0 0 var(--s-5);
+  color: var(--ink-mid);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.session-pane {
+  display: flex;
+  flex-direction: column;
+  /* Fill the entire content area edge-to-edge — negative horizontal margin
+     cancels .main's horizontal padding so the terminal touches the window
+     edges (and the sidebar border) with no surrounding chrome. */
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  margin: 0 calc(-1 * var(--s-4));
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+
+/* Session tabs · sits between the page-title-bar and the session-pane.
+   One row of small tab buttons; the active one has a darker bg + accent
+   underline. Last child is a "+" button that bounces to /launch. The
+   strip is full-bleed (matches .session-pane horizontal extents). */
+.session-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0 2px 0 0;
+  /* Negative bottom margin cancels the tab-panel's gap to the
+     session-pane underneath, so the strip sits flush against the
+     terminal. Negative horizontal margin cancels .main's padding so
+     the strip is full-bleed like the terminal underneath. */
+  margin: 0 calc(-1 * var(--s-4)) calc(-1 * var(--s-4));
+  background: var(--term-tabstrip);
+  border-bottom: 0;
+}
+.session-tabs-list {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.session-tabs-right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding-right: 2px;
+}
+/* Close the gap to the page-title-bar above — only when there IS one.
+   In standalone PWA the title-bar is display:none and .session-tabs is
+   the first tab-panel child; a negative margin-top there would push
+   the strip up over the OS title-bar border. */
+.page-title-bar + .session-tabs {
+  margin-top: calc(-1 * var(--s-4));
+}
+.session-tab {
+  appearance: none;
+  background: var(--term-tab);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;          /* overlap container border-bottom */
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--term-tab-text);
+  cursor: pointer;
+  max-width: 200px;
+  min-width: 0;
+  transition: background-color .12s, color .12s;
+}
+.session-tab:hover { background: var(--term-tab-hover); color: var(--term-on); }
+.session-tab.is-active {
+  background: var(--term-surface);
+  color: var(--term-on);
+  border-bottom-color: var(--term-surface);
+}
+.session-tab-icon { display: inline-flex; flex-shrink: 0; }
+.session-tab-icon svg { width: 14px; height: 14px; }
+.session-tab-icon img { width: 14px; height: 14px; }
+.session-tab-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.session-tab-meta { color: var(--term-tab-text); font-size: 11px; }
+.session-tab.is-active .session-tab-meta { color: rgba(255, 255, 255, 0.6); }
+.session-tab-add {
+  background: transparent;
+  max-width: none;
+  padding: 0 8px;
+  color: #fff;
+}
+.session-tab-add:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.session-tab-add svg { width: 14px; height: 14px; }
+
+/* Kebab in the page-title-bar (top-right). Compact 24px square so it
+   doesn't dominate the masthead. In WCO mode the title-bar already
+   reserves padding-right for OS controls, so this slides cleanly to
+   the left of them. */
+.session-menu-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color .12s, color .12s;
+}
+.session-menu-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.session-menu-btn svg { width: 16px; height: 16px; }
+
+.session-menu {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(0,0,0,0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.session-menu-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 7px 10px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.session-menu-item:hover { background: var(--bg); }
+.session-menu-item.danger { color: var(--danger, #b73f3f); }
+.session-menu-item.danger:hover { background: rgba(183, 63, 63, 0.08); }
+.session-menu-item svg { width: 14px; height: 14px; }
+
+.session-pane-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-wrap: wrap;
+}
+.session-pane-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.session-pane-title h2 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.session-pane-meta {
+  display: flex;
+  gap: var(--s-3);
+  align-items: center;
+  font-size: 11.5px;
+  flex: 1;
+  overflow: hidden;
+}
+.session-pane-meta .mono {
+  font-family: var(--mono);
+  color: var(--ink-mid);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+.session-pane-meta .muted {
+  color: var(--ink-muted);
+}
+.session-pane-actions {
+  display: flex;
+  gap: var(--s-2);
+  flex-shrink: 0;
+}
+.session-pane-body {
+  flex: 1;
+  min-height: 0;
+  background: var(--term-surface);
+}
+.session-pane-body .terminal-host {
+  height: 100%;
+}
+.session-pane-body .terminal-empty {
+  background: var(--term-surface);
+  color: var(--term-on);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  height: 100%;
+  font-size: 13px;
+}
+.session-pane-body .terminal-empty .mono {
+  color: var(--term-prompt);
+}
+.session-pane-body .terminal-empty .action.primary {
+  background: var(--term-cta-bg);
+  color: var(--term-cta-fg);
+  border-color: var(--term-cta-bg);
+}
+.session-pane-body .terminal-empty .action.primary:hover {
+  background: var(--term-cta-bg-hover);
+  border-color: var(--term-cta-bg-hover);
+}
+
+/* Displaced state — shown when the server kicks us off because another
+   client attached to the same session (latest-wins). Same dark surface
+   as terminal-empty so the transition from running terminal → displaced
+   doesn't flash a colour change. */
+.terminal-displaced {
+  background: var(--term-surface);
+  color: var(--term-on);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--s-5);
+}
+.terminal-displaced-card {
+  max-width: 460px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.terminal-displaced-card h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--term-heading);
+  letter-spacing: -0.005em;
+}
+.terminal-displaced-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--term-on-dim);
+}
+.terminal-displaced-actions {
+  margin-top: var(--s-2);
+  display: flex;
+  justify-content: center;
+}
+.terminal-displaced-card .action.primary {
+  background: var(--term-cta-bg);
+  color: var(--term-cta-fg);
+  border-color: var(--term-cta-bg);
+  padding: 9px 20px;
+  font-size: 13px;
+}
+.terminal-displaced-card .action.primary:hover {
+  background: var(--term-cta-bg-hover);
+  border-color: var(--term-cta-bg-hover);
+}
+.terminal-displaced-hint {
+  font-size: 11.5px !important;
+  color: var(--term-on-faint) !important;
+}
+
+/* ─── Mobile terminal accessory bar (TerminalKeyBar.js) ───────────────
+   Floats just above the soft keyboard via a JS-set `bottom` offset
+   (visualViewport keyboard height). Styled against the dark terminal
+   palette — it visually belongs to the terminal, not the cream chrome —
+   so it reads as one surface with the xterm canvas above it. */
+.term-keybar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 215;                 /* above the mobile FAB (210) */
+  background: var(--term-keybar-bg);
+  border-top: 1px solid var(--term-key-border);
+  padding: 6px 8px;
+  touch-action: manipulation;   /* kill the 300ms double-tap-zoom delay */
+  user-select: none;
+  -webkit-user-select: none;
+  /* NOT overflow:auto here — that would clip the Ctrl popover (which sits
+     at bottom:100%, above the bar). The horizontal scroll lives on the
+     inner .term-keybar-row instead. */
+}
+/* Inner scroll row — holds the keys; scrolls horizontally if they don't
+   fit, without clipping the popover that escapes the bar upward. */
+.term-keybar-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: nowrap;
+}
+.term-keybar-row::-webkit-scrollbar { display: none; }
+
+.tkb-key {
+  flex: 0 0 auto;
+  min-width: 42px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--term-key-fg);
+  background: var(--term-key-bg);
+  border: 1px solid var(--term-key-border);
+  border-radius: 8px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.tkb-key:active,
+.tkb-key.is-active {
+  background: var(--term-key-active-bg);
+  border-color: var(--term-key-active-border);
+}
+.tkb-arrow { padding: 0 10px; }
+.tkb-arrow svg { width: 18px; height: 18px; }
+/* S-Tab carries a multi-char label — let it size to content. */
+.tkb-wide { padding: 0 12px; }
+/* The ↵ glyph renders a touch small in the mono stack; bump it so it
+   matches the arrow icons' optical weight. */
+.tkb-glyph { font-size: 17px; line-height: 1; }
+
+/* Ctrl combos — a wrap grid that pops ABOVE the bar (bottom:100%). */
+.term-keybar-pop {
+  position: absolute;
+  bottom: 100%;
+  left: 8px;
+  right: 8px;
+  z-index: 1;                   /* above the key row inside the bar's context */
+  margin-bottom: 6px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  padding: 8px;
+  background: var(--term-pop-bg);
+  border: 1px solid var(--term-pop-border);
+  border-radius: 10px;
+  box-shadow: 0 -8px 24px -8px rgba(0, 0, 0, 0.5);
+}
+.tkb-combo {
+  flex-direction: column;
+  height: auto;
+  min-width: 0;
+  padding: 7px 4px;
+  gap: 2px;
+}
+.tkb-combo-label { font-family: var(--mono); font-size: 13px; color: var(--term-key-fg); }
+.tkb-combo-hint  { font-size: 9.5px; color: var(--term-key-hint); letter-spacing: 0.01em; }

@@ -1,0 +1,165 @@
+/* Dark-mode overrides.
+ *
+ * The bulk of the UI flips automatically: surfaces, ink, and borders all
+ * read from CSS vars that state.js (and the pre-paint script in index.html)
+ * re-derive for the dark ground. This file only patches the stragglers —
+ * places that hardcoded a light-assuming literal color instead of a var,
+ * plus a few values that need a genuinely different treatment on dark
+ * (focus rings, primary-button hover, status text contrast, scrims).
+ *
+ * Loaded LAST so these win the cascade. Everything is scoped under
+ * [data-theme="dark"] on <html>, set by applyTheme().
+ *
+ * NOT touched here (intentionally dark already): the terminal pane, the
+ * session tabs, and the mobile key bar — those are dark in both themes. */
+
+/* ── buttons ─────────────────────────────────────────────────────── */
+/* Primary CTA. In light mode it's the ink slab (near-black bg, light
+   text). The faithful inversion in dark mode is a near-WHITE slab, which
+   reads as a harsh pure-white button floating in the dark popups (the
+   Create / Done / Save buttons). Use the accent instead — that's the
+   conventional dark-UI primary and matches the accent-colored Launch CTA,
+   so every "do this" button in dark mode is one coherent color. */
+[data-theme="dark"] .action.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+[data-theme="dark"] .action.primary:hover {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+  box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.6);
+}
+/* .fab is the same ink-slab pattern (var(--ink) bg) — give it the same
+   accent treatment so it isn't a white circle either. */
+[data-theme="dark"] .fab {
+  background: var(--accent);
+  color: #fff;
+}
+[data-theme="dark"] .fab:hover { background: var(--accent-deep); }
+/* Active "Working directory" mode card (Launch page). Its selected
+   highlight uses var(--ink) for the border + icon chip, which flips to
+   light cream in dark mode → a glaring white frame + white icon square.
+   Use the accent highlight instead, matching the dark primary button. */
+[data-theme="dark"] .workdir-mode-opt.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+[data-theme="dark"] .workdir-mode-opt.is-active .workdir-mode-icon {
+  background: var(--accent);
+  color: #fff;
+}
+/* Focus rings / hover shadows used a dark ink wash that vanishes on a dark
+   ground — switch to a light wash so the affordance stays visible. */
+[data-theme="dark"] .action:hover { box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.5); }
+[data-theme="dark"] .action:focus-visible { box-shadow: 0 0 0 3px rgba(236, 231, 218, 0.16); }
+[data-theme="dark"] .input:focus,
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus { box-shadow: 0 0 0 3px rgba(236, 231, 218, 0.12); }
+[data-theme="dark"] .action.danger:hover { background: #c75050; border-color: #c75050; }
+
+/* Filled triangle (see forms.css note) tinted to the faint dark-mode ink
+   so the select arrow is a calm solid mark instead of a pair of bright
+   jagged strokes. */
+[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'><path d='M1 1 L5 5 L9 1 Z' fill='%236d6a62'/></svg>");
+}
+
+/* ── brand mark ──────────────────────────────────────────────────── */
+/* The logo's "terminal window" rect is near-black (#1a1815) and vanishes
+   against the dark page. Lift its fill so it reads as a small elevated
+   panel — no hard outline (a border looks boxy at this size); the lighter
+   fill alone separates it. (Light mode leaves the presentation-attribute
+   fill untouched — it's already legible there.) */
+[data-theme="dark"] .brand-rect { fill: #38342f; }
+
+/* ── notifications (toast + restart pill) ────────────────────────── */
+/* Both use var(--ink) as their surface and var(--bg) as their text — a
+   deliberate high-contrast inverted pill in light mode. But var(--ink)
+   flips to light cream in dark mode, so the bottom-right notification
+   showed up as a pale pill that read as "still light / not following the
+   theme". In dark mode, give them a dark elevated surface with light text
+   + a defined border so they sit IN the dark theme like a snackbar. The
+   ::before chip and the spinner already use currentColor, so they invert
+   along with the text for free. */
+[data-theme="dark"] .toast,
+[data-theme="dark"] .restart-banner {
+  background: var(--bg-elev);
+  color: var(--ink);
+  border: 1px solid var(--border-strong);
+}
+
+/* ── paper grain ─────────────────────────────────────────────────── */
+/* The noise texture is a dark-tinted SVG multiplied over the surface —
+   invisible (and wrong blend) on a dark ground. Screen-blend it at low
+   opacity so it adds faint light speckle instead. */
+[data-theme="dark"] body::before { mix-blend-mode: screen; opacity: 0.4; }
+
+/* ── Microsoft sign-in button ────────────────────────────────────── */
+/* Microsoft's brand guidance ships a dark-theme variant of the sign-in
+   button (dark fill, light text). The four-square logo stays as-is. */
+[data-theme="dark"] .btn-signin-microsoft {
+  background: #2b2b2b;
+  border-color: #5e5e5e;
+  color: #ffffff;
+}
+[data-theme="dark"] .btn-signin-microsoft:hover { background: #383838; border-color: #6f6f6f; }
+[data-theme="dark"] .btn-signin-microsoft:active { background: #1f1f1f; }
+
+/* ── status / semantic text contrast ─────────────────────────────── */
+/* These literals were tuned for dark-text-on-light. On a dark ground they
+   read as near-black mud — lift each to a legible tint of the same hue. */
+[data-theme="dark"] .provider-status-state.is-ok,
+[data-theme="dark"] .status-link.ok,
+[data-theme="dark"] .status-label.ok { color: #7fc77f; }
+[data-theme="dark"] .provider-status-state.is-warn,
+[data-theme="dark"] .status-label.warn,
+[data-theme="dark"] .signin-error-msg { color: #e89090; }
+[data-theme="dark"] .signin-error-msg.is-active,
+[data-theme="dark"] .tunnel-stop-link:hover { color: #f0a8a8; }
+[data-theme="dark"] .status-label.blue { color: #6fb0e8; }
+[data-theme="dark"] .remote-status-line .warn,
+[data-theme="dark"] .warning-bg { color: #d9a066; }
+[data-theme="dark"] .warning-tag { border-color: #b87a3a; background: rgba(217, 160, 102, 0.08); }
+[data-theme="dark"] .warning-bg { background: rgba(217, 160, 102, 0.16); }
+
+/* Light result panels (success/error) → translucent tints on dark. */
+[data-theme="dark"] .signin-card-result.is-ok { background: rgba(74, 138, 74, 0.14); }
+[data-theme="dark"] .signin-card-result.is-error { background: rgba(183, 63, 63, 0.16); }
+
+/* Scrims sit over content — a touch deeper reads better against dark UI. */
+[data-theme="dark"] .modal-backdrop,
+[data-theme="dark"] .offline-overlay,
+[data-theme="dark"] .kbd-recorder-overlay { background: rgba(0, 0, 0, 0.6); }
+
+/* ── terminal chrome ─────────────────────────────────────────────── */
+/* Dark values for the --term-* palette (terminals.css holds the light
+   defaults). These restore the original near-black terminal surround,
+   tab strip, empty/displaced states, and mobile key bar. Keep in lockstep
+   with TerminalView.js's THEME_DARK. */
+[data-theme="dark"] {
+  /* VSCode Dark+ neutral panel grays around the #1e1e1e terminal canvas. */
+  --term-surface:       #1e1e1e;   /* matches THEME_DARK.background */
+  --term-on:            #cccccc;
+  --term-on-dim:        rgba(204, 204, 204, 0.72);
+  --term-on-faint:      rgba(204, 204, 204, 0.45);
+  --term-heading:       #ffffff;
+  --term-prompt:        #f14c4c;   /* VSCode ansiBrightRed */
+  --term-cta-bg:        #cccccc;
+  --term-cta-fg:        #1e1e1e;
+  --term-cta-bg-hover:  #e5e5e5;
+  --term-tabstrip:      #252526;
+  --term-tab:           #2d2d2d;
+  --term-tab-hover:     #333333;
+  --term-tab-text:      rgba(204, 204, 204, 0.65);
+  --term-keybar-bg:     #252526;
+  --term-key-fg:        #cccccc;
+  --term-key-bg:        rgba(255, 255, 255, 0.06);
+  --term-key-border:    rgba(255, 255, 255, 0.14);
+  --term-key-active-bg: rgba(255, 255, 255, 0.20);
+  --term-key-active-border: rgba(255, 255, 255, 0.32);
+  --term-key-hint:      rgba(204, 204, 204, 0.5);
+  --term-pop-bg:        #252526;
+  --term-pop-border:    rgba(255, 255, 255, 0.16);
+}
