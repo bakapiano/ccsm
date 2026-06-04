@@ -380,7 +380,11 @@ export function TerminalView({ terminalId, cliType }) {
     };
     const doPaste = (text) => {
       if (!text) return;
-      if (ws.readyState !== 1) return;
+      // Read the live socket — `ws` is scoped to connect() and reassigned on
+      // every reconnect, so referencing it here would be a ReferenceError
+      // (which silently killed Ctrl+V via onKey's .catch).
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== 1) return;
       // Normalize line endings to \r (CR / Enter). This mirrors VSCode's
       // terminal sendText path (terminalInstance.ts ~L1385):
       //   text = text.replace(/\r?\n/g, '\r');
@@ -468,7 +472,8 @@ export function TerminalView({ terminalId, cliType }) {
       ev.preventDefault();
       ev.stopPropagation();
       ev.stopImmediatePropagation();
-      if (ws.readyState === 1) {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'input', data }));
       }
     };
