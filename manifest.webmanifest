@@ -2,7 +2,7 @@
   "id": "/ccsm/",
   "name": "CCSM",
   "short_name": "CCSM",
-  "version": "0.21.4",
+  "version": "0.21.5",
   "description": "Single pane over every live claude session on this machine.",
   "start_url": "./",
   "scope": "./",
