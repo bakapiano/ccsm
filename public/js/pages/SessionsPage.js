@@ -7,13 +7,13 @@
 import { html } from '../html.js';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { activeSessionId, sessions, config, selectTab, selectSession, clockTick } from '../state.js';
-import { resumeSession, clearResumeFailure, deleteSession, setSessionTitle } from '../api.js';
+import { resumeSession, clearResumeFailure, deleteSession, setSessionTitle, openSessionInEditor } from '../api.js';
 import { setToast } from '../toast.js';
 import { ccsmConfirm, ccsmPrompt } from '../dialog.js';
 import { TerminalView } from '../components/TerminalView.js';
 import { PageTitleBar } from '../components/PageTitleBar.js';
 import { Popover } from '../components/Popover.js';
-import { IconMoreVert, IconPencil, IconClose, IconPlus, IconForCliType, IconTerminal } from '../icons.js';
+import { IconMoreVert, IconPencil, IconClose, IconPlus, IconForCliType, IconTerminal, IconExternal } from '../icons.js';
 import { fmtAgo } from '../util.js';
 
 function SessionTabs({ activeId, onActivate, onNew, kebab }) {
@@ -51,7 +51,7 @@ function SessionTabs({ activeId, onActivate, onNew, kebab }) {
     </div>`;
 }
 
-function SessionMenu({ session, onRename, onDelete }) {
+function SessionMenu({ session, onRename, onDelete, onOpenEditor }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef(null);
   return html`
@@ -61,9 +61,12 @@ function SessionMenu({ session, onRename, onDelete }) {
       <${IconMoreVert} />
     </button>
     ${open ? html`
-      <${Popover} anchor=${anchor} align="right" width=${180}
+      <${Popover} anchor=${anchor} align="right" width=${200}
                   onClose=${() => setOpen(false)}>
         <div class="session-menu">
+          <button class="session-menu-item" onClick=${() => { setOpen(false); onOpenEditor(); }}>
+            <${IconExternal} /> Open in editor
+          </button>
           <button class="session-menu-item" onClick=${() => { setOpen(false); onRename(); }}>
             <${IconPencil} /> Rename
           </button>
@@ -129,6 +132,12 @@ export function SessionsPage() {
       activeSessionId.value = null;
     } catch (e) { setToast(e.message, 'error'); }
   };
+  const onOpenEditor = async () => {
+    try {
+      const r = await openSessionInEditor(session.id);
+      setToast(`Opening in ${r?.editor || 'editor'}…`);
+    } catch (e) { setToast(e.message, 'error'); }
+  };
 
   return html`
     <${PageTitleBar} title=${html`
@@ -146,7 +155,7 @@ export function SessionsPage() {
       activeId=${session.id}
       onActivate=${(sid) => selectSession(sid)}
       onNew=${() => selectTab('launch')}
-      kebab=${html`<${SessionMenu} session=${session} onRename=${onRename} onDelete=${onDelete} />`} />
+      kebab=${html`<${SessionMenu} session=${session} onRename=${onRename} onDelete=${onDelete} onOpenEditor=${onOpenEditor} />`} />
     <div class="session-pane">
       <div class="session-pane-body">
         ${running

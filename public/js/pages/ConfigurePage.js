@@ -154,7 +154,7 @@ export function ConfigurePage() {
 
   useEffect(() => {
     if (cfg && !general) {
-      setGeneral({ workDir: cfg.workDir });
+      setGeneral({ workDir: cfg.workDir, editor: cfg.editor });
     }
   }, [cfg]);
 
@@ -167,6 +167,7 @@ export function ConfigurePage() {
       const saved = await api('PUT', '/api/config', {
         ...cfg,
         workDir: (merged.workDir || '').trim(),
+        editor: (merged.editor || '').trim(),
       });
       config.value = saved;
       setToast('saved');
@@ -198,6 +199,13 @@ export function ConfigurePage() {
           <span class="label">Backend</span>
           <${RestartButton} />
         </div>
+        <label class="field">
+          <span class="label">Editor</span>
+          <input type="text" class="mono" value=${general.editor || ''}
+                 placeholder="code"
+                 onChange=${(e) => saveGeneral({ editor: e.target.value })} />
+          <span class="hint">Command for a session's “Open in editor” action. Default <code>code</code> (VS Code). Try <code>cursor</code>, <code>code-insiders</code>, …</span>
+        </label>
       </div>
     </${Section}>
 

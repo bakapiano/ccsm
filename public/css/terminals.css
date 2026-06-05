@@ -349,12 +349,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  /* Follow the terminal foreground so the dots read on both the light
+     (#f0f0f0) and dark (#252526) tab strip. The old hardcoded #fff was
+     invisible on the light strip. */
+  color: var(--term-on);
   cursor: pointer;
   flex-shrink: 0;
   transition: background-color .12s, color .12s;
 }
-.session-menu-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+/* Neutral-grey hover tint works on either strip colour (darkens the light
+   one, lightens the dark one) without needing a per-theme override. */
+.session-menu-btn:hover { background: rgba(128, 128, 128, 0.2); color: var(--term-on); }
 .session-menu-btn svg { width: 16px; height: 16px; }
 
 .session-menu {

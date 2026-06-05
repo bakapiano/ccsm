@@ -259,6 +259,13 @@ export async function deleteSession(sessionId) {
   await loadSessions();
 }
 
+// Open the session's working directory in the user's configured editor
+// (Settings → Editor, default `code`). Returns { editor, cwd } so the
+// caller can surface which editor it launched.
+export function openSessionInEditor(sessionId) {
+  return api('POST', `/api/sessions/${sessionId}/open-editor`);
+}
+
 // Per-session in-flight resume promise. Sidebar.onClick and the
 // SessionsPage auto-resume effect can both fire for the same exited
 // session in the same tick (clicking an exited row mounts SessionsPage

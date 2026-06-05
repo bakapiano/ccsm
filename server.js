@@ -633,6 +633,35 @@ app.delete('/api/sessions/:id', asyncH(async (req, res) => {
   res.json({ removed });
 }));
 
+// Open a session's working directory in the user's configured editor
+// (config.editor, default `code` = VS Code, whose Source Control panel is
+// also the review-changes view once the folder's open). Spawned detached
+// so it outlives ccsm; shell:true so Windows resolves `code.cmd` via
+// PATHEXT and a command like `code --reuse-window` parses, with the cwd
+// quoted so paths with spaces survive the shell. spawnEnv() merges the
+// user-scope PATH so `code`/`cursor` are found even when the inherited
+// env lacks them.
+app.post('/api/sessions/:id/open-editor', asyncH(async (req, res) => {
+  const record = await persistedSessions.get(req.params.id);
+  if (!record) return res.status(404).json({ error: 'session not found' });
+  const cfg = await loadConfig();
+  const editor = (cfg.editor || '').trim() || 'code';
+  const { spawn } = require('node:child_process');
+  try {
+    const child = spawn(editor, [`"${record.cwd}"`], {
+      detached: true, stdio: 'ignore', shell: true,
+      env: spawnEnv(), windowsHide: true,
+    });
+    // A bad editor command fails the shell async (after we've responded);
+    // log it so it's diagnosable, but the happy path needs no await.
+    child.on('error', (e) => console.warn(`[ccsm] open-editor "${editor}" failed:`, e.message));
+    child.unref();
+    res.json({ ok: true, editor, cwd: record.cwd });
+  } catch (e) {
+    res.status(500).json({ error: `failed to launch ${editor}: ${e.message}` });
+  }
+}));
+
 // Reorder sessions within a folder. Body: { folderId, ids } where ids
 // is the new sequence of session ids in their final display order
 // inside that folder. Each session gets `folderId` + `order: 0..N-1`
