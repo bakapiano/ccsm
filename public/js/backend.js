@@ -83,6 +83,45 @@ export function getDeviceId() {
   }
 }
 
+// ── Initial terminal geometry ─────────────────────────────────────
+// Estimate how many cols/rows the live session pane can hold, so a
+// resumed / newly-launched PTY can spawn at roughly the right size
+// instead of node-pty's 120×30 default. Why it matters: an alt-screen
+// TUI like claude lays its entire UI out the instant it starts, using
+// whatever size the PTY had then. xterm only sends the real size once
+// its WebSocket opens — a beat later — and claude, having already
+// painted at 30 rows, doesn't re-expand to fill a tall window until
+// something forces a redraw (e.g. the user resizing it). On a big
+// display that strands the terminal at ~1/4 height. Seeding the spawn
+// with the pane's real dimensions sidesteps the race; xterm's own fit
+// still corrects any few-row estimate error when it attaches.
+// Returns null when nothing measurable is mounted, so the caller omits
+// the hint and the backend keeps its default.
+export function estimateTermSize() {
+  let w, h;
+  const pane = document.querySelector('.terminal-host')
+            || document.querySelector('.session-pane-body');
+  if (pane) {
+    const r = pane.getBoundingClientRect();
+    w = r.width; h = r.height;
+  } else {
+    // Launching from the Launch page — no pane yet. Approximate from the
+    // window minus the sidebar column and the ~70px of top chrome.
+    const sb = document.querySelector('.sidebar');
+    w = window.innerWidth - (sb ? sb.getBoundingClientRect().width : 232) - 32;
+    h = window.innerHeight - 70;
+  }
+  if (!(w > 40) || !(h > 40)) return null;
+  // Mirror TerminalView's font sizing (13px desktop / 11px mobile,
+  // lineHeight 1.2); cell advance ≈ 0.6em for the mono stack.
+  const isMobile = window.matchMedia('(max-width: 640px)').matches;
+  const fontSize = isMobile ? 11 : 13;
+  return {
+    cols: Math.max(20, Math.min(400, Math.floor(w / (fontSize * 0.6)))),
+    rows: Math.max(8, Math.min(200, Math.floor(h / (fontSize * 1.2)))),
+  };
+}
+
 // Per-device 4-digit human-verification code. Sent alongside the
 // device id so the operator approving on the host can match what
 // they see in the Remote page against what the requesting user

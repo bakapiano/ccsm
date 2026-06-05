@@ -2,7 +2,7 @@
 // Items live in a signal keyed by repo so progress rows are reactive.
 
 import { signal } from '@preact/signals';
-import { httpBase } from './backend.js';
+import { httpBase, estimateTermSize } from './backend.js';
 
 // progressByContext[rootId] = { repoName: { phase, percent, detail, state, indeterminate, name } }
 export const progressByContext = signal({});
@@ -63,10 +63,13 @@ export async function streamNewSession(body, { progressRootId = 'newSessionProgr
   // Pass the resolved terminal theme so the backend can hand CLIs a matching
   // COLORFGBG (light/dark detection). dataset.theme is set by applyTheme().
   const theme = document.documentElement.dataset.theme;
+  // Seed the PTY at the pane's real size (estimated from the window here,
+  // since the terminal isn't mounted yet) so alt-screen CLIs don't start
+  // at node-pty's 30-row default and get stranded short of a tall window.
   const res = await fetch(httpBase() + '/api/sessions/new', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, theme }),
+    body: JSON.stringify({ ...body, theme, ...(estimateTermSize() || {}) }),
   });
   if (!res.ok && res.headers.get('content-type')?.startsWith('application/json')) {
     const j = await res.json();

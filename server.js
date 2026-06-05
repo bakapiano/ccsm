@@ -281,7 +281,7 @@ function quoteForCmd(s) {
   return s;
 }
 
-function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [], theme }) {
+function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [], theme, cols, rows }) {
   if (!webTerminal.available) {
     const e = new Error('node-pty unavailable · cannot spawn web terminal');
     e.code = 'PTY_UNAVAILABLE';
@@ -331,12 +331,22 @@ function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [], theme }) {
   if (theme === 'light' || theme === 'dark') {
     env.COLORFGBG = theme === 'light' ? '0;15' : '15;0';
   }
+  // Spawn the PTY at the size the frontend measured for its terminal pane
+  // (clamped against junk), so alt-screen CLIs lay out at the right height
+  // from the first frame instead of node-pty's 120×30 default. Omitted ⇒
+  // webTerminal.spawn keeps its default; xterm's first resize corrects any
+  // small estimate error on attach regardless.
+  const sized = (Number(cols) > 0 && Number(rows) > 0)
+    ? { cols: Math.min(400, Math.max(20, Math.floor(Number(cols)))),
+        rows: Math.min(200, Math.max(8, Math.floor(Number(rows)))) }
+    : {};
   const trySpawn = (executable) => webTerminal.spawn({
     id: sessionId,
     command: executable,
     args,
     cwd,
     env,
+    ...sized,
     meta: { ...meta, cliId: cli.id, cliName: cli.name },
     onData: () => {
       persistedSessions.touch(sessionId).catch(() => {});
@@ -867,6 +877,8 @@ app.post('/api/sessions/new', async (req, res) => {
           meta: { title: workspace.name, workspace: workspace.name, cwd: workspace.path },
           extraArgs: [...themeArgs, ...newSessionArgs],
           theme: req.body && req.body.theme,
+          cols: req.body && req.body.cols,
+          rows: req.body && req.body.rows,
         });
         await persistedSessions.markRunning(record.id, entry.meta.pid);
         launched = { id: record.id, pid: entry.meta.pid, cliId: cli.id };
@@ -1004,6 +1016,8 @@ app.post('/api/sessions/:id/resume', asyncH(async (req, res) => {
       meta: { title: record.title || record.workspace, workspace: record.workspace, cwd: record.cwd },
       extraArgs: [...themeArgs, ...extraArgs],
       theme: req.body && req.body.theme,
+      cols: req.body && req.body.cols,
+      rows: req.body && req.body.rows,
     });
     await persistedSessions.markRunning(record.id, entry.meta.pid);
     res.json({ launched: { id: record.id, pid: entry.meta.pid, cliId: cli.id } });

@@ -229,6 +229,20 @@ export function TerminalView({ terminalId, cliType }) {
     scheduleFit();
     termRef.current = term;
 
+    // Web fonts settle AFTER the first fit. The terminal's mono stack
+    // (`Geist Mono` / `JetBrains Mono`) loads async from Google Fonts with
+    // display:swap, so on a machine without a local `Cascadia Mono` the very
+    // first term.open()+fit() measures cell metrics against the fallback font.
+    // When the real font swaps in its cell height changes, making the row
+    // count fit computed wrong — and because the host's box size never changed,
+    // the ResizeObserver never fires to correct it. The terminal ends up a row
+    // or two short of (or past) the host, "sometimes" — depending purely on
+    // whether the font was already cached. Re-fit once fonts settle; it's a
+    // no-op when the metrics didn't actually change (e.g. local font hit).
+    try {
+      document.fonts?.ready?.then(() => { if (termRef.current === term) scheduleFit(); });
+    } catch {}
+
     // Browser WS API can't set Authorization headers — token + device
     // ride as query string when we have them (Remote-mode access).
     // Server's upgrade handler reads both when Host is non-loopback.

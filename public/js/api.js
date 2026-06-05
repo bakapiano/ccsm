@@ -3,7 +3,7 @@
 
 import { signal } from '@preact/signals';
 import * as S from './state.js';
-import { httpBase, getToken, getDeviceId, getDeviceCode, isRemoteAccess } from './backend.js';
+import { httpBase, getToken, getDeviceId, getDeviceCode, isRemoteAccess, estimateTermSize } from './backend.js';
 
 // Global pending-approval signal. Flipped to true whenever any /api
 // call returns 403 {pending:true}; PendingApprovalOverlay watches this
@@ -286,6 +286,9 @@ export function resumeSession(sessionId) {
       // Resolved terminal theme → backend sets a matching COLORFGBG so the
       // CLI's light/dark auto-detection follows the ccsm terminal.
       theme: document.documentElement.dataset.theme,
+      // Seed the PTY at the pane's real size so alt-screen CLIs (claude)
+      // don't lay out at node-pty's 30-row default and get stranded short.
+      ...(estimateTermSize() || {}),
     });
     await loadSessions();
     return r.launched;
