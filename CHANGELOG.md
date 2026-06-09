@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.4
+
+### Fixes
+- Align the web terminal frontend lifecycle more closely with VS Code: resize debouncing now follows visibility and buffer-size heuristics, WebGL renderer changes request dimension refreshes, and terminal visibility changes flush pending layout before redraw.
+- Refresh terminal rendering on session switches with the same visible-instance path, preventing stale canvas sizing after moving between terminals.
+- Keep replay writes guarded until xterm finishes processing them, avoiding replay-triggered terminal responses leaking back into the PTY.
+
 ## 0.22.1
 
 ### Features
