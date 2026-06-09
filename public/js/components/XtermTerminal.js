@@ -59,6 +59,8 @@ export class XtermTerminal {
     this.currentTheme = themeFor(isDarkTheme());
     this.fitAddon = new FitAddon();
     this.webglAddon = null;
+    this.webglContextLossDisposable = null;
+    this.refreshDimensionListeners = new Set();
     this.host = null;
 
     this.raw = new Terminal({
@@ -82,12 +84,12 @@ export class XtermTerminal {
     this.raw.loadAddon(this.fitAddon);
     this.raw.loadAddon(new WebLinksAddon());
     this.raw.loadAddon(new ClipboardAddon());
-    this._loadRendererAddon();
     this._installSelectionCopyGuard();
   }
 
   get cols() { return this.raw.cols; }
   get rows() { return this.raw.rows; }
+  get normalBufferLength() { return this.raw.buffer?.normal?.length ?? 0; }
   get theme() { return this.currentTheme; }
   get parser() { return this.raw.parser; }
   get helperTextarea() {
@@ -97,12 +99,19 @@ export class XtermTerminal {
   attachToElement(host) {
     this.host = host;
     this.raw.open(host);
-    this.scheduleLayout();
+    this._enableWebglRenderer();
     try {
       document.fonts?.ready?.then(() => {
-        if (this.host === host) this.scheduleLayout();
+        if (this.host === host) this._fireRequestRefreshDimensions();
       });
     } catch {}
+  }
+
+  onDidRequestRefreshDimensions(listener) {
+    this.refreshDimensionListeners.add(listener);
+    return {
+      dispose: () => this.refreshDimensionListeners.delete(listener),
+    };
   }
 
   applyResolvedTheme() {
@@ -128,15 +137,6 @@ export class XtermTerminal {
     try { this.raw.write('\x1b[?25l'); } catch {}
   }
 
-  scheduleLayout() {
-    this.layoutFromElement();
-    requestAnimationFrame(() => {
-      this.layoutFromElement();
-      setTimeout(() => this.layoutFromElement(), 60);
-      setTimeout(() => this.layoutFromElement(), 200);
-    });
-  }
-
   layoutFromElement() {
     if (!this.host) return null;
     const rect = this.host.getBoundingClientRect();
@@ -156,6 +156,16 @@ export class XtermTerminal {
     return proposed;
   }
 
+  proposeDimensions(width, height) {
+    return this._proposeDimensions(width, height);
+  }
+
+  resize(cols, rows) {
+    if (!(cols > 0 && rows > 0)) return;
+    try { this.raw.resize(cols, rows); } catch {}
+    lastKnownGridDimensions = { cols: this.raw.cols, rows: this.raw.rows };
+  }
+
   fit() {
     try { this.fitAddon.fit(); } catch {}
   }
@@ -166,6 +176,11 @@ export class XtermTerminal {
 
   clearTextureAtlas() {
     try { this.raw.clearTextureAtlas?.(); } catch {}
+  }
+
+  forceRedraw() {
+    this.clearTextureAtlas();
+    this.refresh();
   }
 
   write(data, callback) {
@@ -194,20 +209,50 @@ export class XtermTerminal {
 
   dispose() {
     this.host = null;
+    this._disposeWebglRenderer(false);
+    this.refreshDimensionListeners.clear();
     try { this.raw.dispose(); } catch {}
   }
 
-  _loadRendererAddon() {
+  _shouldLoadWebgl() {
+    return !this.isMobile && XtermTerminal._suggestedRendererType !== 'dom';
+  }
+
+  _enableWebglRenderer() {
     // Keep the current mobile guard: @xterm/addon-webgl@0.18 can mis-measure
     // glyph atlases on fractional mobile DPRs.
-    if (this.isMobile) return;
+    if (!this.raw.element || !this._shouldLoadWebgl()) return;
+    this._disposeWebglRenderer(false);
     try {
       const webgl = new WebglAddon();
       this.webglAddon = webgl;
-      webgl.onContextLoss(() => { try { webgl.dispose(); } catch {} });
+      this.webglContextLossDisposable = webgl.onContextLoss(() => {
+        console.warn('[ccsm] WebGL context lost, using DOM renderer');
+        this._disposeWebglRenderer();
+      });
       this.raw.loadAddon(webgl);
+      this._fireRequestRefreshDimensions();
     } catch (e) {
+      XtermTerminal._suggestedRendererType = 'dom';
+      this._disposeWebglRenderer(false);
       console.warn('[ccsm] WebGL addon failed, using DOM renderer:', e);
+      this._fireRequestRefreshDimensions();
+    }
+  }
+
+  _disposeWebglRenderer(requestRefresh = true) {
+    try { this.webglContextLossDisposable?.dispose(); } catch {}
+    this.webglContextLossDisposable = null;
+    if (this.webglAddon) {
+      try { this.webglAddon.dispose(); } catch {}
+      this.webglAddon = null;
+    }
+    if (requestRefresh) this._fireRequestRefreshDimensions();
+  }
+
+  _fireRequestRefreshDimensions() {
+    for (const listener of this.refreshDimensionListeners) {
+      try { listener(); } catch {}
     }
   }
 
@@ -283,3 +328,5 @@ export class XtermTerminal {
     return width > 0 ? width : SCROLLBAR_WIDTH_FALLBACK;
   }
 }
+
+XtermTerminal._suggestedRendererType = undefined;

@@ -3,6 +3,7 @@
 // resize propagation, paste handling, and browser/mobile lifecycle hooks.
 
 import { wsBase, getToken, getDeviceId } from '../backend.js';
+import { TerminalResizeDebouncer } from './TerminalResizeDebouncer.js';
 import { XtermTerminal } from './XtermTerminal.js';
 
 export class TerminalInstance {
@@ -18,19 +19,36 @@ export class TerminalInstance {
     this.attempts = 0;
     this.everOpened = false;
     this.inReplay = false;
+    this.replayDepth = 0;
+    this.isVisible = false;
+    this.lastLayoutDimensions = null;
     this.lastSentDimensions = null;
+    this.pendingLayoutFrame = null;
+    this.layoutRetryTimers = new Set();
     this.disposables = [];
     this.helperTextarea = null;
+    this.resizeDebouncer = new TerminalResizeDebouncer({
+      isVisible: () => this.isVisible,
+      getXterm: () => this.xterm,
+      resizeBoth: (cols, rows) => this._applyResize(cols, rows),
+      resizeX: (cols) => this._applyResize(cols, this.xterm.rows),
+      resizeY: (rows) => this._applyResize(this.xterm.cols, rows),
+    });
+    const refreshDisposable = this.xterm.onDidRequestRefreshDimensions(() => {
+      this.scheduleLayout({ immediate: this.isVisible, retries: true });
+    });
+    this.disposables.push(() => refreshDisposable.dispose());
   }
 
   attachToElement(host) {
     this.host = host;
     this.xterm.attachToElement(host);
     this._registerColorOscHandlers();
-    this._connect();
     this._wireXtermEvents();
     this._wireDomLifecycle();
-    this.xterm.focus();
+    this.setVisible(this._isHostVisible());
+    this._connect();
+    if (this.isVisible) this.xterm.focus();
   }
 
   sendInput(data) {
@@ -45,19 +63,60 @@ export class TerminalInstance {
     this.xterm.applyResolvedTheme();
   }
 
-  layout(width, height) {
-    const dimensions = (width > 0 && height > 0)
-      ? this.xterm.layout(width, height)
-      : this.xterm.layoutFromElement();
-    if (dimensions) {
-      this._sendResize(dimensions.cols, dimensions.rows);
+  layout(width, height, immediate = false) {
+    const layoutDimensions = this._resolveLayoutDimensions(width, height);
+    if (!layoutDimensions) return null;
+
+    this.lastLayoutDimensions = layoutDimensions;
+    const proposed = this.xterm.proposeDimensions(layoutDimensions.width, layoutDimensions.height);
+    if (!proposed) return null;
+
+    this.resizeDebouncer.resize(proposed.cols, proposed.rows, immediate);
+    return proposed;
+  }
+
+  scheduleLayout(options = {}) {
+    const { immediate = false, retries = false, forceRedraw = false } =
+      typeof options === 'boolean' ? { immediate: options } : options;
+    if (this.closedByUs) return null;
+
+    if (immediate) {
+      this._cancelScheduledLayout();
+      const result = this.layout(undefined, undefined, true);
+      if (forceRedraw) this.xterm.forceRedraw();
+      if (retries) this._scheduleLayoutRetries(forceRedraw);
+      return result;
     }
-    return dimensions;
+
+    if (this.pendingLayoutFrame === null) {
+      this.pendingLayoutFrame = requestAnimationFrame(() => {
+        this.pendingLayoutFrame = null;
+        this.layout();
+        if (forceRedraw) this.xterm.forceRedraw();
+      });
+    }
+    if (retries) this._scheduleLayoutRetries(forceRedraw);
+    return null;
+  }
+
+  setVisible(visible) {
+    const nextVisible = !!visible;
+    const didChange = this.isVisible !== nextVisible;
+    this.isVisible = nextVisible;
+    this.host?.classList.toggle('active', nextVisible);
+
+    if (nextVisible) {
+      this.resizeDebouncer.flush();
+      this.scheduleLayout({ immediate: true, retries: true, forceRedraw: true });
+    }
+    return didChange;
   }
 
   dispose() {
     this.closedByUs = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this._cancelScheduledLayout();
+    this.resizeDebouncer.dispose();
     for (const dispose of this.disposables.splice(0)) {
       try { dispose(); } catch {}
     }
@@ -78,8 +137,7 @@ export class TerminalInstance {
       }
       this.everOpened = true;
       this.attempts = 0;
-      this.layout();
-      this.xterm.scheduleLayout();
+      this.scheduleLayout({ immediate: true, retries: true });
       this._sendResize(this.xterm.cols, this.xterm.rows, true);
     };
     ws.onmessage = (ev) => {
@@ -140,7 +198,7 @@ export class TerminalInstance {
     this.disposables.push(() => ro.disconnect());
 
     const vv = window.visualViewport;
-    const onVisualResize = () => this.xterm.scheduleLayout();
+    const onVisualResize = () => this.scheduleLayout({ retries: true });
     vv?.addEventListener?.('resize', onVisualResize);
     vv?.addEventListener?.('scroll', onVisualResize);
     this.disposables.push(() => {
@@ -155,6 +213,7 @@ export class TerminalInstance {
     }
 
     this._wireTabVisibilityRefresh(host);
+    this._wireDocumentVisibilityRefresh();
     this._wirePasteHandlers(host);
     this._wireModifiedEnterHandler(host);
     this._wireCompositionHandlers();
@@ -164,17 +223,22 @@ export class TerminalInstance {
     const panel = host.closest('.tab-panel');
     if (!panel) return;
     const panelMo = new MutationObserver(() => {
-      if (panel.hasAttribute('data-active')) {
-        requestAnimationFrame(() => {
-          this.xterm.clearTextureAtlas();
-          this.xterm.scheduleLayout();
-          this.layout();
-          this.xterm.refresh();
-        });
-      }
+      this.setVisible(this._isHostVisible());
     });
     panelMo.observe(panel, { attributes: true, attributeFilter: ['data-active'] });
     this.disposables.push(() => panelMo.disconnect());
+  }
+
+  _wireDocumentVisibilityRefresh() {
+    const onVisibilityChange = () => {
+      this.setVisible(!document.hidden && this._isHostVisible());
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onVisibilityChange);
+    this.disposables.push(
+      () => document.removeEventListener('visibilitychange', onVisibilityChange),
+      () => window.removeEventListener('focus', onVisibilityChange),
+    );
   }
 
   _wirePasteHandlers(host) {
@@ -294,10 +358,72 @@ export class TerminalInstance {
       this.xterm.write(data);
       return;
     }
-    this.inReplay = true;
+    this._beginReplay();
     this.xterm.write(data, () => {
-      this.inReplay = false;
+      this._endReplay();
     });
+  }
+
+  _beginReplay() {
+    this.replayDepth++;
+    this.inReplay = true;
+  }
+
+  _endReplay() {
+    this.replayDepth = Math.max(0, this.replayDepth - 1);
+    this.inReplay = this.replayDepth > 0;
+  }
+
+  _applyResize(cols, rows) {
+    if (this.closedByUs) return;
+    if (!(cols > 0 && rows > 0)) return;
+    this.xterm.resize(cols, rows);
+    this._sendResize(this.xterm.cols, this.xterm.rows);
+  }
+
+  _resolveLayoutDimensions(width, height) {
+    if (width > 0 && height > 0) {
+      return { width, height };
+    }
+    if (!this.host) return null;
+    const rect = this.host.getBoundingClientRect();
+    const resolvedWidth = rect.width || this.host.clientWidth;
+    const resolvedHeight = rect.height || this.host.clientHeight;
+    if (!(resolvedWidth > 0 && resolvedHeight > 0)) return null;
+    return { width: resolvedWidth, height: resolvedHeight };
+  }
+
+  _scheduleLayoutRetries(forceRedraw = false) {
+    this._clearLayoutRetryTimers();
+    for (const delay of [60, 200]) {
+      const timer = setTimeout(() => {
+        this.layoutRetryTimers.delete(timer);
+        this.layout(undefined, undefined, true);
+        if (forceRedraw) this.xterm.forceRedraw();
+      }, delay);
+      this.layoutRetryTimers.add(timer);
+    }
+  }
+
+  _cancelScheduledLayout() {
+    if (this.pendingLayoutFrame !== null) {
+      cancelAnimationFrame(this.pendingLayoutFrame);
+      this.pendingLayoutFrame = null;
+    }
+    this._clearLayoutRetryTimers();
+  }
+
+  _clearLayoutRetryTimers() {
+    for (const timer of this.layoutRetryTimers) clearTimeout(timer);
+    this.layoutRetryTimers.clear();
+  }
+
+  _isHostVisible() {
+    if (!this.host || !this.host.isConnected || document.hidden) return false;
+    const panel = this.host.closest('.tab-panel');
+    if (panel && !panel.hasAttribute('data-active')) return false;
+    const style = window.getComputedStyle(this.host);
+    return style.display !== 'none' && style.visibility !== 'hidden';
   }
 
   _wsUrl() {
