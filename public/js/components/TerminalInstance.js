@@ -17,6 +17,8 @@ export class TerminalInstance {
     this.reconnectTimer = null;
     this.attempts = 0;
     this.everOpened = false;
+    this.inReplay = false;
+    this.lastSentDimensions = null;
     this.disposables = [];
     this.helperTextarea = null;
   }
@@ -43,6 +45,16 @@ export class TerminalInstance {
     this.xterm.applyResolvedTheme();
   }
 
+  layout(width, height) {
+    const dimensions = (width > 0 && height > 0)
+      ? this.xterm.layout(width, height)
+      : this.xterm.layoutFromElement();
+    if (dimensions) {
+      this._sendResize(dimensions.cols, dimensions.rows);
+    }
+    return dimensions;
+  }
+
   dispose() {
     this.closedByUs = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -66,14 +78,15 @@ export class TerminalInstance {
       }
       this.everOpened = true;
       this.attempts = 0;
-      this.xterm.scheduleFit();
-      this._sendFrame({ type: 'resize', cols: this.xterm.cols, rows: this.xterm.rows });
+      this.layout();
+      this.xterm.scheduleLayout();
+      this._sendResize(this.xterm.cols, this.xterm.rows, true);
     };
     ws.onmessage = (ev) => {
       let frame;
       try { frame = JSON.parse(ev.data); } catch { return; }
       if (frame.type === 'output') {
-        this.xterm.write(frame.data);
+        this._writeProcessData(frame.data, !!frame.replay);
       } else if (frame.type === 'exit') {
         this.xterm.write(`\r\n\x1b[2m[process exited · code ${frame.code}]\x1b[0m\r\n`);
       }
@@ -101,10 +114,11 @@ export class TerminalInstance {
 
   _wireXtermEvents() {
     const dataDisposable = this.xterm.onData((data) => {
+      if (this.inReplay) return;
       this._sendFrame({ type: 'input', data });
     });
     const resizeDisposable = this.xterm.onResize(({ cols, rows }) => {
-      this._sendFrame({ type: 'resize', cols, rows });
+      this._sendResize(cols, rows);
     });
     this.disposables.push(
       () => dataDisposable.dispose(),
@@ -114,12 +128,19 @@ export class TerminalInstance {
 
   _wireDomLifecycle() {
     const host = this.host;
-    const ro = new ResizeObserver(() => this.xterm.fit());
+    const ro = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (box) {
+        this.layout(box.width, box.height);
+      } else {
+        this.layout();
+      }
+    });
     ro.observe(host);
     this.disposables.push(() => ro.disconnect());
 
     const vv = window.visualViewport;
-    const onVisualResize = () => this.xterm.scheduleFit();
+    const onVisualResize = () => this.xterm.scheduleLayout();
     vv?.addEventListener?.('resize', onVisualResize);
     vv?.addEventListener?.('scroll', onVisualResize);
     this.disposables.push(() => {
@@ -146,7 +167,8 @@ export class TerminalInstance {
       if (panel.hasAttribute('data-active')) {
         requestAnimationFrame(() => {
           this.xterm.clearTextureAtlas();
-          this.xterm.scheduleFit();
+          this.xterm.scheduleLayout();
+          this.layout();
           this.xterm.refresh();
         });
       }
@@ -235,6 +257,7 @@ export class TerminalInstance {
   _registerColorOscHandlers() {
     const answerColorOsc = (code, getHex) => (data) => {
       if (data !== '?') return false;
+      if (this.inReplay) return true;
       const hex = getHex();
       const ch = (i) => parseInt(hex.slice(i, i + 2), 16);
       const w = (v) => (v * 257).toString(16).padStart(4, '0');
@@ -252,6 +275,29 @@ export class TerminalInstance {
     if (this.ws && this.ws.readyState === 1) {
       this.ws.send(JSON.stringify(frame));
     }
+  }
+
+  _sendResize(cols, rows, force = false) {
+    if (!(cols > 0 && rows > 0)) return;
+    if (!force
+        && this.lastSentDimensions
+        && this.lastSentDimensions.cols === cols
+        && this.lastSentDimensions.rows === rows) {
+      return;
+    }
+    this.lastSentDimensions = { cols, rows };
+    this._sendFrame({ type: 'resize', cols, rows });
+  }
+
+  _writeProcessData(data, replay) {
+    if (!replay) {
+      this.xterm.write(data);
+      return;
+    }
+    this.inReplay = true;
+    this.xterm.write(data, () => {
+      this.inReplay = false;
+    });
   }
 
   _wsUrl() {

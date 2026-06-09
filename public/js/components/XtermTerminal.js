@@ -9,6 +9,10 @@ import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { isDarkTheme } from '../state.js';
 
+const DEFAULT_COLS = 80;
+const DEFAULT_ROWS = 24;
+const SCROLLBAR_WIDTH_FALLBACK = 14;
+
 // Dark xterm theme - VSCode's Dark+ terminal palette, verbatim (see
 // microsoft/vscode src/.../terminal/common/terminalColorRegistry.ts).
 const THEME_DARK = {
@@ -47,6 +51,8 @@ const THEME_LIGHT = {
 
 export const themeFor = (dark) => (dark ? THEME_DARK : THEME_LIGHT);
 
+let lastKnownGridDimensions = { cols: DEFAULT_COLS, rows: DEFAULT_ROWS };
+
 export class XtermTerminal {
   constructor() {
     this.isMobile = window.matchMedia('(max-width: 640px)').matches;
@@ -59,6 +65,8 @@ export class XtermTerminal {
       fontFamily: '"Cascadia Mono", "Geist Mono", "JetBrains Mono", Consolas, monospace',
       fontSize: this.isMobile ? 11 : 13,
       lineHeight: 1.2,
+      cols: lastKnownGridDimensions.cols,
+      rows: lastKnownGridDimensions.rows,
       cursorBlink: true,
       cursorStyle: 'bar',
       scrollback: 5000,
@@ -89,10 +97,10 @@ export class XtermTerminal {
   attachToElement(host) {
     this.host = host;
     this.raw.open(host);
-    this.scheduleFit();
+    this.scheduleLayout();
     try {
       document.fonts?.ready?.then(() => {
-        if (this.host === host) this.scheduleFit();
+        if (this.host === host) this.scheduleLayout();
       });
     } catch {}
   }
@@ -120,13 +128,32 @@ export class XtermTerminal {
     try { this.raw.write('\x1b[?25l'); } catch {}
   }
 
-  scheduleFit() {
-    this.fit();
+  scheduleLayout() {
+    this.layoutFromElement();
     requestAnimationFrame(() => {
-      this.fit();
-      setTimeout(() => this.fit(), 60);
-      setTimeout(() => this.fit(), 200);
+      this.layoutFromElement();
+      setTimeout(() => this.layoutFromElement(), 60);
+      setTimeout(() => this.layoutFromElement(), 200);
     });
+  }
+
+  layoutFromElement() {
+    if (!this.host) return null;
+    const rect = this.host.getBoundingClientRect();
+    return this.layout(rect.width, rect.height);
+  }
+
+  layout(width, height) {
+    if (!(width > 0 && height > 0)) return null;
+
+    const proposed = this._proposeDimensions(width, height);
+    if (!proposed) return null;
+
+    if (proposed.cols !== this.raw.cols || proposed.rows !== this.raw.rows) {
+      try { this.raw.resize(proposed.cols, proposed.rows); } catch {}
+    }
+    lastKnownGridDimensions = proposed;
+    return proposed;
   }
 
   fit() {
@@ -142,7 +169,7 @@ export class XtermTerminal {
   }
 
   write(data, callback) {
-    try { this.raw.write(data, callback); } catch {}
+    try { this.raw.write(data, callback); } catch { callback?.(); }
   }
 
   reset() {
@@ -194,5 +221,65 @@ export class XtermTerminal {
       }
       return true;
     });
+  }
+
+  _proposeDimensions(width, height) {
+    const cell = this._cellDimensions();
+    if (!cell) return null;
+
+    const elementStyle = this.raw.element
+      ? window.getComputedStyle(this.raw.element)
+      : null;
+    const px = (v) => Number.parseFloat(v || '0') || 0;
+    const horizontalPadding = elementStyle
+      ? px(elementStyle.paddingLeft) + px(elementStyle.paddingRight)
+      : 0;
+    const verticalPadding = elementStyle
+      ? px(elementStyle.paddingTop) + px(elementStyle.paddingBottom)
+      : 0;
+    const scrollbarWidth = this._scrollbarWidth();
+
+    const availableWidth = Math.max(0, width - horizontalPadding - scrollbarWidth);
+    const availableHeight = Math.max(0, height - verticalPadding);
+    if (!(availableWidth > 0 && availableHeight > 0)) return null;
+
+    const dpr = window.devicePixelRatio || 1;
+    const scaledWidth = availableWidth * dpr;
+    const scaledCellWidth = cell.width * dpr;
+    const scaledHeight = availableHeight * dpr;
+    const scaledCellHeight = Math.ceil(cell.height * dpr);
+
+    return {
+      cols: Math.max(1, Math.floor(scaledWidth / scaledCellWidth)),
+      rows: Math.max(1, Math.floor(scaledHeight / scaledCellHeight)),
+    };
+  }
+
+  _cellDimensions() {
+    const cell = this.raw?._core?._renderService?.dimensions?.css?.cell;
+    if (cell?.width > 0 && cell?.height > 0) {
+      return { width: cell.width, height: cell.height };
+    }
+
+    const proposed = (() => {
+      try { return this.fitAddon.proposeDimensions?.(); } catch { return null; }
+    })();
+    if (proposed?.cols > 0 && proposed?.rows > 0 && this.host) {
+      const rect = this.host.getBoundingClientRect();
+      return {
+        width: rect.width / proposed.cols,
+        height: rect.height / proposed.rows,
+      };
+    }
+    return null;
+  }
+
+  _scrollbarWidth() {
+    const core = this.raw?._core;
+    const width =
+      core?._viewport?.scrollBarWidth ??
+      core?.viewport?.scrollBarWidth ??
+      0;
+    return width > 0 ? width : SCROLLBAR_WIDTH_FALLBACK;
   }
 }
