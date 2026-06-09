@@ -423,10 +423,34 @@ export function RemotePage() {
     const fresh = genToken();
     setTokenLocal(fresh);
     try {
-      const s = await api('POST', '/api/tunnel/token', { token: fresh });
+      // When auto-start is on the token must be PERSISTED, else the
+      // rotated token is lost on the next backend restart and every
+      // share URL built from it 401s. Route through the persisting
+      // endpoint in that case; otherwise the in-memory-only token
+      // endpoint is enough.
+      const s = status?.autoStart
+        ? await api('POST', '/api/tunnel/autostart', { autoStart: true, provider, token: fresh })
+        : await api('POST', '/api/tunnel/token', { token: fresh });
       setStatus(s);
       setToast('New token in effect', 'ok');
     } catch (e) { setToast(`token save failed · ${e.message}`, 'error'); }
+  }
+  // Persist (or clear) the auto-start preference. On enable with no
+  // token yet, mint one first so the backend has something to reuse on
+  // its next startup. Approved devices keep working regardless of the
+  // token — it only gates NEW device registration.
+  async function onToggleAutoStart(next) {
+    setBusy(true);
+    try {
+      let tok = token;
+      if (next && (!tok || tok.length < 8)) { tok = genToken(); setTokenLocal(tok); }
+      const s = await api('POST', '/api/tunnel/autostart',
+        next ? { autoStart: true, provider, token: tok } : { autoStart: false });
+      setStatus(s);
+      setToast(next ? 'Auto-start on · tunnel comes up when ccsm starts' : 'Auto-start off', 'ok');
+    } catch (e) {
+      setToast(`auto-start ${next ? 'enable' : 'disable'} failed · ${e.message}`, 'error');
+    } finally { setBusy(false); }
   }
   async function onInstall(p) {
     const ok = await ccsmConfirm(`Install ${p} via winget? Runs in the background — refresh after ~30s.`, {
@@ -553,6 +577,18 @@ export function RemotePage() {
         meta=${running
           ? html`Provider <code>${status?.provider}</code> · started ${new Date(status.startedAt).toLocaleTimeString()}`
           : html`Not running.`}>
+        <div class="tunnel-autostart">
+          <label class="tunnel-autostart-row">
+            <input type="checkbox" checked=${!!status?.autoStart} disabled=${busy}
+                   onChange=${(e) => onToggleAutoStart(e.target.checked)} />
+            <span class="tunnel-autostart-label">Start this tunnel automatically when ccsm starts</span>
+          </label>
+          ${status?.autoStart && provider === 'cloudflared' ? html`
+            <span class="hint tunnel-autostart-hint">
+              Cloudflare quick tunnels get a new URL each launch — the share URL will change on
+              restart and approved devices must re-register. Use Microsoft Dev Tunnel for a stable URL.
+            </span>` : null}
+        </div>
         ${!running ? html`
           <div class="tunnel-hero">
             <div class="tunnel-hero-body">

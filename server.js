@@ -456,13 +456,27 @@ function decorateConfigWithProbes(cfg) {
   };
 }
 
+// The tunnel + devtunnel config blocks are managed exclusively through
+// /api/tunnel/* (host-only) — they hold the persisted remote-access
+// token and the named tunnelId. Strip them from /api/config so (a) the
+// plaintext token never reaches an approved remote device reading config
+// and (b) the frontend's whole-object config round-trip on save can't
+// clobber tunnelId/token with a stale snapshot.
+function stripTunnelKeys(cfg) {
+  const rest = { ...cfg };
+  delete rest.tunnel;
+  delete rest.devtunnel;
+  return rest;
+}
 app.get('/api/config', asyncH(async (_req, res) => {
-  res.json(decorateConfigWithProbes(await loadConfig()));
+  res.json(decorateConfigWithProbes(stripTunnelKeys(await loadConfig())));
 }));
 
 app.put('/api/config', asyncH(async (req, res) => {
-  const cfg = await saveConfig(req.body || {});
-  res.json(decorateConfigWithProbes(cfg));
+  const body = { ...(req.body || {}) };
+  delete body.tunnel;
+  delete body.devtunnel;
+  res.json(decorateConfigWithProbes(stripTunnelKeys(await saveConfig(body))));
 }));
 
 // ---- CLI probe / test ----
@@ -1162,6 +1176,28 @@ app.post('/api/tunnel/token', asyncH(async (req, res) => {
   tunnel.setToken(t);
   res.json(await tunnel.status());
 }));
+// Persist auto-start prefs. When ON, the backend brings this tunnel up
+// during its own startup (the boot hook in the listen IIFE below) using
+// the persisted token, so share URLs survive a backend restart. The
+// token is written to config ONLY while auto-start is on; turning it off
+// wipes the persisted token from disk. setToken keeps the in-memory copy
+// in lockstep so the share URL the page renders stays valid immediately.
+app.post('/api/tunnel/autostart', asyncH(async (req, res) => {
+  const { autoStart, provider, token } = req.body || {};
+  if (autoStart) {
+    if (!token || String(token).length < 8) {
+      return res.status(400).json({ error: 'token required (≥ 8 chars)' });
+    }
+    if (!['devtunnel', 'cloudflared'].includes(provider)) {
+      return res.status(400).json({ error: 'valid provider required' });
+    }
+    tunnel.setToken(token);
+    await saveConfig({ tunnel: { autoStart: true, provider, token } });
+  } else {
+    await saveConfig({ tunnel: { autoStart: false, provider: null, token: null } });
+  }
+  res.json(await tunnel.status());
+}));
 app.post('/api/tunnel/install', asyncH(async (req, res) => {
   const { provider } = req.body || {};
   try {
@@ -1674,6 +1710,20 @@ function openInBrowser(url) {
   // they open the Remote tab. Fire in the background here so the cache
   // is warm by the time anyone clicks.
   try { tunnel.probe(true).catch(() => {}); } catch {}
+
+  // Auto-start the tunnel if the user enabled it on the Remote page.
+  // This is the BACKEND PROCESS bringing its own tunnel up on startup —
+  // not an OS-level autostart (no registry / scheduled task). Reuses the
+  // persisted token so share URLs stay valid across restarts. Strictly
+  // fire-and-forget: a failure here (devtunnel not signed in, provider
+  // uninstalled, etc.) must never crash boot — it just logs and the user
+  // can start manually from the Remote page.
+  if (cfg.tunnel?.autoStart && cfg.tunnel?.token && cfg.tunnel?.provider) {
+    tunnel.setToken(cfg.tunnel.token);
+    tunnel.start({ provider: cfg.tunnel.provider, port: currentPort })
+      .then((s) => console.log(`[ccsm] tunnel auto-started · ${cfg.tunnel.provider} · ${s.url || 'URL pending'}`))
+      .catch((e) => console.warn(`[ccsm] tunnel auto-start failed · ${e.message}`));
+  }
 
   if (webTerminal.available) {
     let WebSocketServer;

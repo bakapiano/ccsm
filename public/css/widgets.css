@@ -1838,6 +1838,32 @@
    Running: a status banner (state · provider · uptime · stop link)
    followed by a copyable share URL block and an optional collapsed
    CLI log. */
+.tunnel-autostart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--s-4);
+}
+.tunnel-autostart-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink-mid);
+}
+.tunnel-autostart-row input {
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.tunnel-autostart-label {
+  user-select: none;
+}
+.tunnel-autostart-hint {
+  /* indent under the checkbox so it lines up with the label text */
+  padding-left: 26px;
+}
+
 .tunnel-hero {
   display: flex;
   align-items: center;

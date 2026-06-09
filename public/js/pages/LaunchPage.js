@@ -38,16 +38,29 @@ function saveLaunchState(s) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {}
 }
 
-function initRepoSelection(repos, override) {
-  if (override && Array.isArray(override)) {
-    // Only honour names that still exist in the user's repo list;
-    // anything else was deleted between sessions.
-    const valid = new Set(repos.map((r) => r.name));
-    selectedRepos.value = new Set(override.filter((n) => valid.has(n)));
-    return;
+function initRepoSelection(repos, saved) {
+  const valid = new Set(repos.map((r) => r.name));
+  const sel = new Set();
+  // Start from the persisted selection (last-used picks), keeping only
+  // repos that still exist.
+  if (saved && Array.isArray(saved.repos)) {
+    for (const n of saved.repos) if (valid.has(n)) sel.add(n);
   }
-  const want = new Set(repos.filter((r) => r.defaultSelected).map((r) => r.name));
-  selectedRepos.value = want;
+  // Auto-check any repo whose "pre-select on launch" default is newly
+  // active — i.e. it wasn't a default the last time we saved. This
+  // covers both a brand-new default repo and an existing repo the user
+  // just flipped to default in Configure. A default the user previously
+  // unchecked stays unchecked (it's an old default, already in
+  // knownDefaults). With no saved knownDefaults (fresh user / old
+  // state), every default applies.
+  const knownDefaults = saved && Array.isArray(saved.knownDefaults)
+    ? new Set(saved.knownDefaults) : null;
+  for (const r of repos) {
+    if (r.defaultSelected && (knownDefaults === null || !knownDefaults.has(r.name))) {
+      sel.add(r.name);
+    }
+  }
+  selectedRepos.value = sel;
 }
 
 function LaunchHero() {
@@ -86,17 +99,21 @@ function LaunchHero() {
   }, [folderId, folders.value.length]);
 
   // Persist every change. JSON-stringifying a Set isn't useful, so
-  // we materialize selectedRepos to an array here.
+  // we materialize selectedRepos to an array here. knownDefaults records
+  // which repos were marked "pre-select" at save time so
+  // initRepoSelection can tell a newly-flipped default apart from one the
+  // user deliberately unchecked.
   useEffect(() => {
     saveLaunchState({
       cliId, folderId, mode, cwd,
       repos: [...selectedRepos.value],
+      knownDefaults: repos.filter((r) => r.defaultSelected).map((r) => r.name),
     });
   }, [cliId, folderId, mode, cwd, selectedRepos.value]);
 
 
   const sig = repos.map((r) => r.name + ':' + r.defaultSelected).join('|');
-  useStateOnce(sig, () => initRepoSelection(repos, saved?.repos));
+  useStateOnce(sig, () => initRepoSelection(repos, saved));
 
   const cli = clis.find((c) => c.id === cliId) || clis[0];
   const folder = folders.value.find((f) => f.id === folderId);
