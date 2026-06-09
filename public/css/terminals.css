@@ -282,6 +282,7 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  gap: 4px;
   padding-right: 2px;
 }
 /* Close the gap to the page-title-bar above — only when there IS one.
@@ -335,6 +336,27 @@
 .session-tab-add:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
 .session-tab-add svg { width: 14px; height: 14px; }
 
+.session-controls {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.session-control-btn.danger {
+  color: #f4b8b8;
+}
+.session-control-btn.danger:hover:not(:disabled) {
+  color: #ffd1d1;
+  background: rgba(183, 63, 63, 0.22);
+}
+.session-control-btn:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+.session-control-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* Kebab in the page-title-bar (top-right). Compact 24px square so it
    doesn't dominate the masthead. In WCO mode the title-bar already
    reserves padding-right for OS controls, so this slides cleanly to
@@ -359,7 +381,8 @@
 }
 /* Neutral-grey hover tint works on either strip colour (darkens the light
    one, lightens the dark one) without needing a per-theme override. */
-.session-menu-btn:hover { background: rgba(128, 128, 128, 0.2); color: var(--term-on); }
+.session-menu-btn:hover:not(:disabled) { background: rgba(128, 128, 128, 0.2); color: var(--term-on); }
+.session-menu-btn:disabled { opacity: .55; cursor: wait; }
 .session-menu-btn svg { width: 16px; height: 16px; }
 
 .session-menu {
@@ -391,6 +414,20 @@
 .session-menu-item.danger { color: var(--danger, #b73f3f); }
 .session-menu-item.danger:hover { background: rgba(183, 63, 63, 0.08); }
 .session-menu-item svg { width: 14px; height: 14px; }
+.session-menu-item img { width: 14px; height: 14px; }
+.session-menu-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 2px;
+}
+.session-menu-label {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
 
 .session-pane-head {
   display: flex;

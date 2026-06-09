@@ -141,6 +141,14 @@ export const IconMoreVert = ic('0 0 24 24', html`
   <circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/>
 `, 16);
 
+export const IconPlay = ic('0 0 24 24', html`
+  <polygon points="8 5 19 12 8 19 8 5"/>
+`, 14);
+
+export const IconStop = ic('0 0 24 24', html`
+  <rect x="7" y="7" width="10" height="10" rx="1.5"/>
+`, 14);
+
 // Broadcast / remote — radiating arcs over a centre dot. Used on the
 // Remote nav tab; reads as "this machine is broadcasting" / "remote
 // access available".

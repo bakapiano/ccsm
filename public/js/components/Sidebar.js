@@ -54,10 +54,9 @@ function SessionRow({ s, folderId, siblingIds }) {
   const onClick = async (ev) => {
     ev.preventDefault();
     selectSession(s.id);
-    // Auto-resume on click if the session is stopped — saves the user
-    // from a second click on the "Resume" button in the right pane.
-    // No-op if already running.
-    if (s.status !== 'running') {
+    // Auto-resume on click if the session stopped on its own. Explicitly
+    // stopped sessions stay stopped until the user presses Resume.
+    if (s.status !== 'running' && !s.manualStopped) {
       try { await resumeSession(s.id); }
       catch (e) { setToast(e.message, 'error'); }
     }

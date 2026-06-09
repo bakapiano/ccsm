@@ -311,6 +311,8 @@ allows `https://bakapiano.github.io` only — never `*`.
 | GET | `/api/sessions` | list persisted sessions |
 | PUT | `/api/sessions/:id` | rename / move to folder |
 | DELETE | `/api/sessions/:id` | kill PTY + drop record |
+| POST | `/api/sessions/:id/switch-cli` | change the persisted `cliId` for future resumes; current and target CLI must share `type` |
+| POST | `/api/sessions/:id/stop` | kill the live PTY but keep the record; sets `manualStopped:true` so UI won't auto-resume |
 | POST | `/api/sessions/new` | body `{cliId, cwd?, repos?, folderId?, title?}` — NDJSON stream (workspace · clone-progress · launched) |
 | POST | `/api/sessions/:id/resume` | re-spawn at `cwd` with `cli.resumeIdArgs <id>` (fallback `resumeArgs`) |
 | GET | `/api/cli-sessions/:type` | scan disk for unimported `claude`/`codex`/`copilot` sessions |

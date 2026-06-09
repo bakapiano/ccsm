@@ -254,6 +254,20 @@ export async function setSessionTitle(sessionId, title) {
   await loadSessions();
 }
 
+export async function switchSessionCli(sessionId, cliId) {
+  const r = await api('POST', `/api/sessions/${sessionId}/switch-cli`, { cliId });
+  resumeFailed.delete(sessionId);
+  await loadSessions();
+  return r;
+}
+
+export async function stopSession(sessionId) {
+  const r = await api('POST', `/api/sessions/${sessionId}/stop`);
+  resumeFailed.delete(sessionId);
+  await loadSessions();
+  return r.session;
+}
+
 export async function deleteSession(sessionId) {
   await api('DELETE', `/api/sessions/${sessionId}`);
   await loadSessions();

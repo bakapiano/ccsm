@@ -217,6 +217,10 @@ function pickCli(cfg, requestedId) {
   return cfg.clis.find((c) => c.id === wanted) || cfg.clis[0];
 }
 
+function findCliById(cfg, id) {
+  return (cfg.clis || []).find((c) => c.id === id) || null;
+}
+
 // Resolve how to spawn a CLI command. Windows quirks:
 // v1.1 — spawn strategy is now caller-controlled via cli.shell:
 //   'direct' — pty.spawn(command, args). Real .exe / absolute paths only.
@@ -637,6 +641,64 @@ app.put('/api/sessions/:id', asyncH(async (req, res) => {
   const updated = await persistedSessions.update(req.params.id, patch);
   if (!updated) return res.status(404).json({ error: 'not found' });
   res.json({ session: updated });
+}));
+
+// Switch the CLI config used to resume an existing session. This is
+// intentionally narrower than the generic PUT route: a session can only
+// move between configured CLIs of the same type (e.g. one claude wrapper
+// to another) so its captured upstream cliSessionId stays meaningful.
+app.post('/api/sessions/:id/switch-cli', asyncH(async (req, res) => {
+  const targetCliId = typeof req.body?.cliId === 'string' ? req.body.cliId.trim() : '';
+  if (!targetCliId) return res.status(400).json({ error: 'cliId required' });
+
+  const record = await persistedSessions.get(req.params.id);
+  if (!record) return res.status(404).json({ error: 'session not found' });
+
+  const cfg = await loadConfig();
+  const currentCli = findCliById(cfg, record.cliId);
+  const targetCli = findCliById(cfg, targetCliId);
+  if (!currentCli) return res.status(400).json({ error: `current CLI ${record.cliId} no longer configured` });
+  if (!targetCli) return res.status(400).json({ error: `target CLI ${targetCliId} not configured` });
+  if (currentCli.type !== targetCli.type) {
+    return res.status(400).json({
+      error: `cannot switch ${currentCli.type} session to ${targetCli.type} CLI`,
+    });
+  }
+
+  if (record.cliId === targetCli.id) {
+    const live = webTerminal.get(record.id);
+    return res.json({ session: record, changed: false, running: !!(live && !live.exitedAt) });
+  }
+
+  const updated = await persistedSessions.update(record.id, { cliId: targetCli.id });
+  const live = webTerminal.get(record.id);
+  res.json({
+    session: updated,
+    changed: true,
+    running: !!(live && !live.exitedAt),
+    fromCliId: currentCli.id,
+    toCliId: targetCli.id,
+    cliType: targetCli.type,
+  });
+}));
+
+// Stop the live PTY for a session without deleting its persisted record.
+// Unlike a natural CLI exit, this is a user intent signal: the frontend
+// should not auto-resume it again until the user explicitly presses Resume.
+app.post('/api/sessions/:id/stop', asyncH(async (req, res) => {
+  const record = await persistedSessions.get(req.params.id);
+  if (!record) return res.status(404).json({ error: 'session not found' });
+  const stopped = webTerminal.kill(record.id);
+  const updated = await persistedSessions.update(record.id, {
+    status: 'exited',
+    pid: null,
+    exitCode: null,
+    exitedAt: Date.now(),
+    manualStopped: true,
+    lastActiveAt: Date.now(),
+  });
+  try { require('./lib/cliActivity').releaseSession(record.id); } catch {}
+  res.json({ stopped, session: updated });
 }));
 
 app.delete('/api/sessions/:id', asyncH(async (req, res) => {

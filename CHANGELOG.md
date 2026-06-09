@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.22.1
+
+### Features
+- Allow an existing session to switch to another configured CLI with the same `type`, such as `claude` to `ccp`, while preserving the captured upstream session id for the next resume.
+- Add explicit Stop and Resume controls for the active session. Sessions stopped this way stay stopped until the user presses Resume.
+
+### Fixes
+- Keep sidebar clicks from auto-resuming sessions that were manually stopped.
+
 ## 0.9.0
 
 The "web terminal becomes actually usable" release.
