@@ -61,6 +61,8 @@ export class XtermTerminal {
     this.webglAddon = null;
     this.webglContextLossDisposable = null;
     this.refreshDimensionListeners = new Set();
+    this.resizeScrollState = null;
+    this.resizeScrollStateTimer = null;
     this.host = null;
 
     this.raw = new Terminal({
@@ -151,7 +153,7 @@ export class XtermTerminal {
     if (!proposed) return null;
 
     if (proposed.cols !== this.raw.cols || proposed.rows !== this.raw.rows) {
-      try { this.raw.resize(proposed.cols, proposed.rows); } catch {}
+      this._resizeRaw(proposed.cols, proposed.rows);
     }
     lastKnownGridDimensions = proposed;
     return proposed;
@@ -163,7 +165,7 @@ export class XtermTerminal {
 
   resize(cols, rows) {
     if (!(cols > 0 && rows > 0)) return;
-    try { this.raw.resize(cols, rows); } catch {}
+    this._resizeRaw(cols, rows);
     lastKnownGridDimensions = { cols: this.raw.cols, rows: this.raw.rows };
   }
 
@@ -217,6 +219,9 @@ export class XtermTerminal {
   }
 
   dispose() {
+    if (this.resizeScrollStateTimer) clearTimeout(this.resizeScrollStateTimer);
+    this.resizeScrollState = null;
+    this.resizeScrollStateTimer = null;
     if (this.host?.xterm === this.raw) {
       try { delete this.host.xterm; } catch { this.host.xterm = undefined; }
     }
@@ -265,6 +270,61 @@ export class XtermTerminal {
   _fireRequestRefreshDimensions() {
     for (const listener of this.refreshDimensionListeners) {
       try { listener(); } catch {}
+    }
+  }
+
+  _resizeRaw(cols, rows) {
+    const scrollState = this._scrollStateForResize();
+    try { this.raw.resize(cols, rows); } catch {}
+    this._restoreScrollStateIfNeeded(scrollState);
+    requestAnimationFrame(() => this._restoreScrollStateIfNeeded(scrollState));
+    setTimeout(() => this._restoreScrollStateIfNeeded(scrollState), 150);
+    setTimeout(() => this._restoreScrollStateIfNeeded(scrollState), 350);
+  }
+
+  _scrollStateForResize() {
+    const state = this._captureScrollState();
+    if (state?.viewportY > 0) {
+      this._rememberResizeScrollState(state);
+      return state;
+    }
+    return this.resizeScrollState;
+  }
+
+  _rememberResizeScrollState(state) {
+    this.resizeScrollState = state;
+    if (this.resizeScrollStateTimer) clearTimeout(this.resizeScrollStateTimer);
+    this.resizeScrollStateTimer = setTimeout(() => {
+      this.resizeScrollState = null;
+      this.resizeScrollStateTimer = null;
+    }, 500);
+  }
+
+  _captureScrollState() {
+    const buffer = this.raw?.buffer?.active;
+    if (!buffer) return null;
+    return {
+      viewportY: buffer.viewportY,
+      baseY: buffer.baseY,
+      atBottom: buffer.viewportY >= buffer.baseY,
+    };
+  }
+
+  _restoreScrollStateIfNeeded(state) {
+    if (!state || !(state.viewportY > 0)) return;
+    const buffer = this.raw?.buffer?.active;
+    if (!buffer) return;
+
+    if (state.atBottom) {
+      if (buffer.viewportY < buffer.baseY) {
+        try { this.raw.scrollToBottom(); } catch {}
+      }
+      return;
+    }
+
+    const target = Math.min(state.viewportY, buffer.baseY);
+    if (target > 0 && buffer.viewportY !== target) {
+      try { this.raw.scrollToLine(target); } catch {}
     }
   }
 

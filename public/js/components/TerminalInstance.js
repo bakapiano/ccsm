@@ -205,15 +205,6 @@ export class TerminalInstance {
     ro.observe(host);
     this.disposables.push(() => ro.disconnect());
 
-    const vv = window.visualViewport;
-    const onVisualResize = () => this.scheduleLayout({ retries: true });
-    vv?.addEventListener?.('resize', onVisualResize);
-    vv?.addEventListener?.('scroll', onVisualResize);
-    this.disposables.push(() => {
-      vv?.removeEventListener?.('resize', onVisualResize);
-      vv?.removeEventListener?.('scroll', onVisualResize);
-    });
-
     const onHostClick = () => this.xterm.focus();
     if (this.xterm.isMobile) {
       host.addEventListener('click', onHostClick);

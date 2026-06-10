@@ -146,7 +146,6 @@ export function SessionsPage() {
   const id = activeSessionId.value;
   const list = sessions.value;
   const session = id ? list.find((s) => s.id === id) : null;
-  const runningSessions = list.filter((s) => s.status === 'running');
   const [resumeError, setResumeError] = useState(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [openTerminalIds, setOpenTerminalIds] = useState(() => new Set());
@@ -175,24 +174,24 @@ export function SessionsPage() {
   }, [session?.id, session?.status, session?.cliId, session?.manualStopped, retryNonce]);
 
   useEffect(() => {
-    const runningIds = new Set(runningSessions.map((s) => s.id));
+    const existingIds = new Set(list.map((s) => s.id));
     setOpenTerminalIds((prev) => {
       const next = new Set();
       let changed = false;
       for (const sid of prev) {
-        if (runningIds.has(sid)) {
+        if (existingIds.has(sid)) {
           next.add(sid);
         } else {
           changed = true;
         }
       }
-      if (session?.status === 'running' && !next.has(session.id)) {
+      if (session?.id && existingIds.has(session.id) && !next.has(session.id)) {
         next.add(session.id);
         changed = true;
       }
       return changed || next.size !== prev.size ? next : prev;
     });
-  }, [list, session?.id, session?.status]);
+  }, [list, session?.id]);
 
   if (!session) return null;
 
@@ -202,12 +201,13 @@ export function SessionsPage() {
     ? (config.value?.clis || []).filter((c) => c.id !== cli.id && c.type === cli.type)
     : [];
   const running = session.status === 'running';
-  const retainedSessions = Array.from(openTerminalIds)
+  const openSessions = Array.from(openTerminalIds)
     .map((sid) => list.find((s) => s.id === sid))
-    .filter((s) => s && s.status === 'running');
-  const terminalSessions = running && !retainedSessions.some((s) => s.id === session.id)
-    ? [...retainedSessions, session]
-    : retainedSessions;
+    .filter(Boolean);
+  const tabSessions = session && !openSessions.some((s) => s.id === session.id)
+    ? [...openSessions, session]
+    : openSessions;
+  const terminalSessions = tabSessions.filter((s) => s.status === 'running');
   const title = session.title || session.workspace || session.id.slice(0, 12);
 
   const onCloseTab = (sid) => {
@@ -219,8 +219,8 @@ export function SessionsPage() {
     });
 
     if (sid !== session.id) return;
-    const currentIndex = terminalSessions.findIndex((s) => s.id === sid);
-    const remaining = terminalSessions.filter((s) => s.id !== sid);
+    const currentIndex = tabSessions.findIndex((s) => s.id === sid);
+    const remaining = tabSessions.filter((s) => s.id !== sid);
     const replacement = currentIndex >= 0
       ? remaining[Math.min(currentIndex, remaining.length - 1)] || remaining[remaining.length - 1]
       : remaining[0];
@@ -233,14 +233,14 @@ export function SessionsPage() {
   };
 
   const onReorderTabs = (orderedIds) => {
-    const runningIds = new Set(runningSessions.map((s) => s.id));
+    const existingIds = new Set(list.map((s) => s.id));
     setOpenTerminalIds((prev) => {
       const nextIds = [];
       for (const sid of orderedIds) {
-        if (runningIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
+        if (existingIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
       }
       for (const sid of prev) {
-        if (runningIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
+        if (existingIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
       }
       return new Set(nextIds);
     });
@@ -319,19 +319,12 @@ export function SessionsPage() {
 
   return html`
     <${PageTitleBar} title=${html`
-        <span class="session-title-text">${title}</span>
-        <span class="session-title-meta">
-          <span class="mono">${session.cwd}</span>
-          <span>·</span>
-          <span>${cli ? cli.name : session.cliId}</span>
-          ${session.repos.length ? html`<span>·</span><span>${session.repos.join(', ')}</span>` : null}
-          <span>·</span>
-          <span>${running ? 'running' : (resumeError ? 'resume failed' : (session.manualStopped ? 'stopped' : 'resuming…'))}</span>
-        </span>
+        <span class="session-title-text" title=${title}>${title}</span>
+        <span class="session-title-cwd" title=${session.cwd}>${session.cwd}</span>
       `} />
     <${SessionTabs}
       activeId=${session.id}
-      openSessions=${terminalSessions}
+      openSessions=${tabSessions}
       onActivate=${(sid) => selectSession(sid)}
       onClose=${onCloseTab}
       onReorder=${onReorderTabs}

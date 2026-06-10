@@ -383,17 +383,11 @@
   height: 18px;
   margin-right: 5px;
   border-radius: 3px;
-  opacity: 0;
+  opacity: 1;
   flex: 0 0 auto;
   cursor: pointer;
 }
-.session-tab:hover .session-tab-close,
-.session-tab.is-active .session-tab-close,
-.session-tab:focus-within .session-tab-close {
-  opacity: .72;
-}
 .session-tab-close:hover {
-  opacity: 1;
   background: rgba(255, 255, 255, 0.12);
 }
 .session-tab-close svg {
