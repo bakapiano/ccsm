@@ -1,0 +1,344 @@
+// VS Code-style xterm wrapper. Owns the raw xterm.js terminal, renderer
+// addons, theme application, and fit/refresh behavior. It intentionally does
+// not know about ccsm sessions or WebSockets.
+
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
+import { WebglAddon } from '@xterm/addon-webgl';
+import { isDarkTheme } from '../state.js';
+
+const DEFAULT_COLS = 80;
+const DEFAULT_ROWS = 24;
+const SCROLLBAR_WIDTH_FALLBACK = 14;
+
+// Dark xterm theme - VSCode's Dark+ terminal palette, verbatim (see
+// microsoft/vscode src/.../terminal/common/terminalColorRegistry.ts).
+const THEME_DARK = {
+  background: '#1e1e1e',
+  foreground: '#cccccc',
+  cursor:     '#aeafad',
+  cursorAccent: '#1e1e1e',
+  selectionBackground: '#264f78',
+  black:   '#000000', brightBlack:   '#666666',
+  red:     '#cd3131', brightRed:     '#f14c4c',
+  green:   '#0dbc79', brightGreen:   '#23d18b',
+  yellow:  '#e5e510', brightYellow:  '#f5f543',
+  blue:    '#2472c8', brightBlue:    '#3b8eea',
+  magenta: '#bc3fbc', brightMagenta: '#d670d6',
+  cyan:    '#11a8cd', brightCyan:    '#29b8db',
+  white:   '#e5e5e5', brightWhite:   '#e5e5e5',
+};
+
+// Light xterm theme - VSCode's Light+ terminal palette, verbatim (see
+// microsoft/vscode src/.../terminal/common/terminalColorRegistry.ts).
+const THEME_LIGHT = {
+  background: '#ffffff',
+  foreground: '#333333',
+  cursor:     '#000000',
+  cursorAccent: '#ffffff',
+  selectionBackground: '#add6ff',
+  black:   '#000000', brightBlack:   '#666666',
+  red:     '#cd3131', brightRed:     '#cd3131',
+  green:   '#107c10', brightGreen:   '#14ce14',
+  yellow:  '#949800', brightYellow:  '#b5ba00',
+  blue:    '#0451a5', brightBlue:    '#0451a5',
+  magenta: '#bc05bc', brightMagenta: '#bc05bc',
+  cyan:    '#0598bc', brightCyan:    '#0598bc',
+  white:   '#555555', brightWhite:   '#a5a5a5',
+};
+
+export const themeFor = (dark) => (dark ? THEME_DARK : THEME_LIGHT);
+
+let lastKnownGridDimensions = { cols: DEFAULT_COLS, rows: DEFAULT_ROWS };
+
+export class XtermTerminal {
+  constructor() {
+    this.isMobile = window.matchMedia('(max-width: 640px)').matches;
+    this.currentTheme = themeFor(isDarkTheme());
+    this.fitAddon = new FitAddon();
+    this.webglAddon = null;
+    this.webglContextLossDisposable = null;
+    this.refreshDimensionListeners = new Set();
+    this.host = null;
+
+    this.raw = new Terminal({
+      fontFamily: '"Cascadia Mono", "Geist Mono", "JetBrains Mono", Consolas, monospace',
+      fontSize: this.isMobile ? 11 : 13,
+      lineHeight: 1.2,
+      cols: lastKnownGridDimensions.cols,
+      rows: lastKnownGridDimensions.rows,
+      cursorBlink: true,
+      cursorStyle: 'bar',
+      scrollback: 5000,
+      allowProposedApi: true,
+      theme: this.currentTheme,
+      // Same modern keyboard protocols VS Code enables when configured.
+      vtExtensions: {
+        kittyKeyboard: true,
+        win32InputMode: true,
+      },
+    });
+
+    this.raw.loadAddon(this.fitAddon);
+    this.raw.loadAddon(new WebLinksAddon());
+    this.raw.loadAddon(new ClipboardAddon());
+    this._installSelectionCopyGuard();
+  }
+
+  get cols() { return this.raw.cols; }
+  get rows() { return this.raw.rows; }
+  get normalBufferLength() { return this.raw.buffer?.normal?.length ?? 0; }
+  get theme() { return this.currentTheme; }
+  get parser() { return this.raw.parser; }
+  get helperTextarea() {
+    return this.host?.querySelector('.xterm-helper-textarea') || null;
+  }
+
+  attachToElement(host) {
+    this.host = host;
+    this.raw.open(host);
+    host.xterm = this.raw;
+    this._enableWebglRenderer();
+    try {
+      document.fonts?.ready?.then(() => {
+        if (this.host === host) this._fireRequestRefreshDimensions();
+      });
+    } catch {}
+  }
+
+  onDidRequestRefreshDimensions(listener) {
+    this.refreshDimensionListeners.add(listener);
+    return {
+      dispose: () => this.refreshDimensionListeners.delete(listener),
+    };
+  }
+
+  applyResolvedTheme() {
+    const theme = themeFor(isDarkTheme());
+    this.currentTheme = theme;
+    try { this.raw.options.theme = theme; } catch {}
+    return theme;
+  }
+
+  setCursorVisible(visible) {
+    if (visible) {
+      try { this.raw.options.theme = this.currentTheme; } catch {}
+      try { this.raw.write('\x1b[?25h'); } catch {}
+      return;
+    }
+    try {
+      this.raw.options.theme = {
+        ...this.currentTheme,
+        cursor: 'transparent',
+        cursorAccent: 'transparent',
+      };
+    } catch {}
+    try { this.raw.write('\x1b[?25l'); } catch {}
+  }
+
+  layoutFromElement() {
+    if (!this.host) return null;
+    const rect = this.host.getBoundingClientRect();
+    return this.layout(rect.width, rect.height);
+  }
+
+  layout(width, height) {
+    if (!(width > 0 && height > 0)) return null;
+
+    const proposed = this._proposeDimensions(width, height);
+    if (!proposed) return null;
+
+    if (proposed.cols !== this.raw.cols || proposed.rows !== this.raw.rows) {
+      try { this.raw.resize(proposed.cols, proposed.rows); } catch {}
+    }
+    lastKnownGridDimensions = proposed;
+    return proposed;
+  }
+
+  proposeDimensions(width, height) {
+    return this._proposeDimensions(width, height);
+  }
+
+  resize(cols, rows) {
+    if (!(cols > 0 && rows > 0)) return;
+    try { this.raw.resize(cols, rows); } catch {}
+    lastKnownGridDimensions = { cols: this.raw.cols, rows: this.raw.rows };
+  }
+
+  fit() {
+    try { this.fitAddon.fit(); } catch {}
+  }
+
+  refresh() {
+    try { this.raw.refresh(0, this.raw.rows - 1); } catch {}
+  }
+
+  clearTextureAtlas() {
+    try { this.raw.clearTextureAtlas?.(); } catch {}
+  }
+
+  forceRedraw() {
+    this.clearTextureAtlas();
+    this.refresh();
+  }
+
+  write(data, callback) {
+    try { this.raw.write(data, callback); } catch { callback?.(); }
+  }
+
+  reset() {
+    try { this.raw.reset(); } catch {}
+  }
+
+  focus() {
+    try { this.raw.focus(); } catch {}
+  }
+
+  blur() {
+    try {
+      if (this.helperTextarea && document.activeElement === this.helperTextarea) {
+        this.helperTextarea.blur();
+      }
+    } catch {}
+  }
+
+  onData(listener) {
+    return this.raw.onData(listener);
+  }
+
+  onResize(listener) {
+    return this.raw.onResize(listener);
+  }
+
+  hasSelection() {
+    return this.raw.hasSelection();
+  }
+
+  dispose() {
+    if (this.host?.xterm === this.raw) {
+      try { delete this.host.xterm; } catch { this.host.xterm = undefined; }
+    }
+    this.host = null;
+    this._disposeWebglRenderer(false);
+    this.refreshDimensionListeners.clear();
+    try { this.raw.dispose(); } catch {}
+  }
+
+  _shouldLoadWebgl() {
+    return !this.isMobile && XtermTerminal._suggestedRendererType !== 'dom';
+  }
+
+  _enableWebglRenderer() {
+    // Keep the current mobile guard: @xterm/addon-webgl@0.18 can mis-measure
+    // glyph atlases on fractional mobile DPRs.
+    if (!this.raw.element || !this._shouldLoadWebgl()) return;
+    this._disposeWebglRenderer(false);
+    try {
+      const webgl = new WebglAddon();
+      this.webglAddon = webgl;
+      this.webglContextLossDisposable = webgl.onContextLoss(() => {
+        console.warn('[ccsm] WebGL context lost, using DOM renderer');
+        this._disposeWebglRenderer();
+      });
+      this.raw.loadAddon(webgl);
+      this._fireRequestRefreshDimensions();
+    } catch (e) {
+      XtermTerminal._suggestedRendererType = 'dom';
+      this._disposeWebglRenderer(false);
+      console.warn('[ccsm] WebGL addon failed, using DOM renderer:', e);
+      this._fireRequestRefreshDimensions();
+    }
+  }
+
+  _disposeWebglRenderer(requestRefresh = true) {
+    try { this.webglContextLossDisposable?.dispose(); } catch {}
+    this.webglContextLossDisposable = null;
+    if (this.webglAddon) {
+      try { this.webglAddon.dispose(); } catch {}
+      this.webglAddon = null;
+    }
+    if (requestRefresh) this._fireRequestRefreshDimensions();
+  }
+
+  _fireRequestRefreshDimensions() {
+    for (const listener of this.refreshDimensionListeners) {
+      try { listener(); } catch {}
+    }
+  }
+
+  _installSelectionCopyGuard() {
+    this.raw.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === 'keydown'
+          && ev.ctrlKey && !ev.shiftKey && !ev.altKey && !ev.metaKey
+          && ev.key.toLowerCase() === 'c'
+          && this.raw.hasSelection()) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  _proposeDimensions(width, height) {
+    const cell = this._cellDimensions();
+    if (!cell) return null;
+
+    const elementStyle = this.raw.element
+      ? window.getComputedStyle(this.raw.element)
+      : null;
+    const px = (v) => Number.parseFloat(v || '0') || 0;
+    const horizontalPadding = elementStyle
+      ? px(elementStyle.paddingLeft) + px(elementStyle.paddingRight)
+      : 0;
+    const verticalPadding = elementStyle
+      ? px(elementStyle.paddingTop) + px(elementStyle.paddingBottom)
+      : 0;
+    const scrollbarWidth = this._scrollbarWidth();
+
+    const availableWidth = Math.max(0, width - horizontalPadding - scrollbarWidth);
+    const availableHeight = Math.max(0, height - verticalPadding);
+    if (!(availableWidth > 0 && availableHeight > 0)) return null;
+
+    const dpr = window.devicePixelRatio || 1;
+    const scaledWidth = availableWidth * dpr;
+    const scaledCellWidth = cell.width * dpr;
+    const scaledHeight = availableHeight * dpr;
+    const scaledCellHeight = Math.ceil(cell.height * dpr);
+
+    return {
+      cols: Math.max(1, Math.floor(scaledWidth / scaledCellWidth)),
+      rows: Math.max(1, Math.floor(scaledHeight / scaledCellHeight)),
+    };
+  }
+
+  _cellDimensions() {
+    const cell = this.raw?._core?._renderService?.dimensions?.css?.cell;
+    if (cell?.width > 0 && cell?.height > 0) {
+      return { width: cell.width, height: cell.height };
+    }
+
+    const proposed = (() => {
+      try { return this.fitAddon.proposeDimensions?.(); } catch { return null; }
+    })();
+    if (proposed?.cols > 0 && proposed?.rows > 0 && this.host) {
+      const rect = this.host.getBoundingClientRect();
+      return {
+        width: rect.width / proposed.cols,
+        height: rect.height / proposed.rows,
+      };
+    }
+    return null;
+  }
+
+  _scrollbarWidth() {
+    const core = this.raw?._core;
+    const width =
+      core?._viewport?.scrollBarWidth ??
+      core?.viewport?.scrollBarWidth ??
+      0;
+    return width > 0 ? width : SCROLLBAR_WIDTH_FALLBACK;
+  }
+}
+
+XtermTerminal._suggestedRendererType = undefined;
