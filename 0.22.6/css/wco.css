@@ -1,0 +1,196 @@
+/* PWA / --app= window drag regions.
+ *
+ * `-webkit-app-region: drag` is a Chromium-only property; it has effect in
+ * Electron, installed PWA windows, AND in `--app=` chromeless mode where
+ * the manifest's display_override unlocks WCO-ish behaviour. In a plain
+ * browser tab it's silently ignored. We therefore apply it *unconditionally*
+ * (no `@media (display-mode: …)` gate) so any surface that does honour it
+ * gets the drag handles — particularly the case where Edge `--app=` reads
+ * our manifest, hides its own OS title bar, but still reports
+ * display-mode: browser. Without unconditional rules, that window has
+ * neither a native title bar to grab NOR app-region drag → undraggable.
+ */
+
+.sidebar-brand,
+.sidebar-top,
+.page-title-bar,
+.page-head,
+.page-head-inner,
+.page-title,
+.page-subtitle {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+/* Any interactive element opts out of drag so click / focus / scroll
+   still reach the page. */
+button, a, input, select, textarea, label,
+.nav-item, .util-item, .collapse-toggle,
+.action, .server-status,
+.star-btn, .rename-btn, .card-fold, .modal-close,
+.chip, .radio, .fab,
+.ph-stat, .ph-divider,
+.page-title-bar-actions,
+.session-title-action {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+body.is-app .sidebar-brand,
+body.is-app .sidebar-top,
+body.is-app .page-title-bar,
+body.is-app .page-head,
+body.is-app .page-head-inner,
+body.is-app .page-title,
+body.is-app .page-subtitle {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* In an app/PWA window, the OS title bar is hidden and only floating
+   close/max/min controls remain in the top-right. The 40px top band of
+   ccsm (sidebar-top + page-title-bar) IS that title bar — it's already
+   tall enough, sits at y=0 with no extra padding, and gets a drag region
+   so the user can grab anywhere along it to move the window. */
+body.is-app .sidebar { padding-top: 0; }
+body.is-app .main    { padding-top: 0; }
+
+body.is-app .page-title,
+body.is-app .page-subtitle {
+  display: none;
+}
+body.is-app .page-head {
+  padding-bottom: 0;
+  border-bottom: 0;
+  align-items: center;
+  min-height: 28px;
+}
+
+/* Standalone PWA (browser still paints its own title bar above our
+   document): suppress our duplicate chrome — the brand mark + collapse
+   row at top-left of the sidebar AND the page-title-bar header — since
+   the OS title bar already shows the app name and serves as the visual
+   header. With sidebar-top hidden, the nav tabs (Sessions/Launch/…)
+   float up to start at the very top of the sidebar column. A 1px
+   border-top across the whole app grid gives the OS title bar something
+   to rest against instead of bleeding straight into our content. */
+body.is-app:not(.is-wco) .sidebar-top {
+  display: none;
+}
+body.is-app:not(.is-wco) .page-title-bar {
+  display: none;
+}
+/* terminals.css uses `.page-title-bar + .session-tabs { margin-top: -s-4 }`
+   to flush the tab strip against the in-page title-bar. Adjacent-sibling
+   selectors match by DOM order regardless of display, so the rule still
+   pulls session-tabs up by 16px even when the title-bar is hidden — the
+   top half of the tabs ends up clipped above the viewport / under the OS
+   title bar. Reset to 0 in standalone PWA. */
+body.is-app:not(.is-wco) .page-title-bar + .session-tabs {
+  margin-top: 0;
+}
+body.is-app:not(.is-wco) .app {
+  /* Hairline separator under the OS title bar. Has to sit ABOVE the
+     sidebar's own background — an inset box-shadow on .app gets covered
+     by .sidebar (which paints var(--ui-bg) across its full area inside
+     .app), so the line was invisible. An absolutely-positioned ::before
+     paints over both columns; it's outside the grid track so it doesn't
+     reintroduce the 1px overflow that a real `border-top: 1px` did. */
+  position: relative;
+}
+body.is-app:not(.is-wco) .app::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border);
+  z-index: 10;
+  pointer-events: none;
+}
+/* With page-title-bar hidden, session-pane's `margin-top: calc(-1 *
+   var(--s-4))` — designed to flush it against the (now invisible)
+   title-bar — would otherwise yank the terminal up into the OS title-bar
+   border. Zero the margin AND drop session-pane's `height: 100%` so flex
+   does all the height math; otherwise the height: 100% double-counts and
+   creates dead space at the bottom. */
+body.is-app:not(.is-wco) .session-pane {
+  margin-top: 0;
+  height: auto;
+}
+/* Settings + Launch · with the in-page title-bar hidden in standalone
+   mode, their content would otherwise butt straight against the OS
+   title-bar border. Give a little breathing room. Sessions has its
+   own full-bleed terminal pane; About has its own hero header. */
+body.is-app:not(.is-wco) [data-panel="configure"],
+body.is-app:not(.is-wco) [data-panel="launch"],
+body.is-app:not(.is-wco) [data-panel="remote"] {
+  padding-top: var(--s-4);
+}
+/* Sidebar nav rows (New Session / Settings) also need a top gap in
+   standalone — body.is-app zeros .sidebar's padding-top so the in-page
+   title-bar can sit flush, but with that title-bar gone in standalone
+   mode the nav buttons end up jammed against the OS title-bar border.
+   Restore a small inset so they read as a real nav, not as overflow. */
+body.is-app:not(.is-wco) .sidebar { padding-top: var(--s-3); }
+
+/* WCO mode only: the browser has hidden its own title bar and floats OS
+   controls (min/max/close) over our content top-right. Our 34px top band
+   IS the title bar in that case — it gets shrunk to match the OS control
+   strip height, and reserves a right-side padding so action buttons don't
+   slide under those floating controls. 150px covers Windows controls
+   (~46px × 3) with breathing room; the env() override below uses the
+   precise titlebar-area-width when the browser exposes it.
+   In plain standalone PWA (browser still paints its own title bar above
+   our document), none of this applies — our page-title-bar behaves like
+   a normal 40px page header from layout.css. */
+body.is-wco .page-title-bar {
+  padding-right: calc(var(--s-4) + 150px);
+}
+body.is-wco .page-title-bar,
+body.is-wco .sidebar-top {
+  /* --titlebar-h is set from JS reading
+     navigator.windowControlsOverlay.getTitlebarAreaRect().height — the
+     OS-reported strip the overlay reserves for us. CSS env() and a 32px
+     baseline are layered fallbacks when the JS API is unavailable. No
+     min-floor on the JS path: the OS knows its own caption height best,
+     and over-padding (the previous max(40px, …)) made the chrome look
+     visibly chunkier than the rest of the window. */
+  /* `max(36px, …)` floors the anti-zoom shrink — at heavy page zoom the
+     counter-scale would otherwise collapse the WCO strip past the OS
+     control row height, jamming the brand mark / collapse toggle into
+     the title text. 36px matches the standalone page-title-bar floor
+     in layout.css so both modes degrade to the same minimum. */
+  height: max(36px, calc(var(--titlebar-h, env(titlebar-area-height, 32px)) * var(--anti-zoom, 1)));
+  min-height: max(36px, calc(var(--titlebar-h, env(titlebar-area-height, 32px)) * var(--anti-zoom, 1)));
+  max-height: max(36px, calc(var(--titlebar-h, env(titlebar-area-height, 32px)) * var(--anti-zoom, 1)));
+}
+body.is-wco .sidebar-brand,
+body.is-wco .sidebar-brand-button,
+body.is-wco .collapse-toggle {
+  height: var(--titlebar-h, env(titlebar-area-height, 32px));
+  min-height: var(--titlebar-h, env(titlebar-area-height, 32px));
+}
+/* terminals.css uses the .tab-panel's gap (s-4) plus a -s-4 margin-top on
+   .session-tabs to close that gap, so the tab strip visually flushes
+   against the page-title-bar above. In WCO the negative margin pulls the
+   tabs row UP by 16px — i.e. its top edge lands ABOVE the OS overlay's
+   bottom edge, and the kebab inside gets clipped by the floating window
+   controls. Cancel both the gap and the negative margin here so the tabs
+   row sits at exactly y=titlebar-area-height (flush below the overlay)
+   without losing flushness against the title-bar. */
+body.is-wco .tab-panel { gap: 0; }
+body.is-wco .page-title-bar + .session-tabs { margin-top: 0; }
+/* terminals.css also gives .session-tabs `margin-bottom: -s-4` to close
+   the gap to session-pane below — but with tab-panel gap now 0 in WCO
+   that negative margin pulls session-pane UP 16px instead, overlapping
+   the bottom of the tab labels (kebab + tab text get clipped from
+   below). Zero it out too. */
+body.is-wco .session-tabs { margin-bottom: 0; }
+
+@media (display-mode: window-controls-overlay) {
+  body.is-wco .page-title-bar {
+    padding-right: calc(var(--s-4) + 100vw - env(titlebar-area-width, 100vw));
+  }
+}
