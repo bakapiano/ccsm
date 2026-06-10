@@ -8,7 +8,7 @@ import { themeMode } from '../state.js';
 import { TerminalKeyBar } from './TerminalKeyBar.js';
 import { TerminalInstance } from './TerminalInstance.js';
 
-export function TerminalView({ terminalId, cliType }) {
+export function TerminalView({ terminalId, cliType, visible = true }) {
   const hostRef = useRef(null);
   const instanceRef = useRef(null);
   const [displaced, setDisplaced] = useState(false);
@@ -38,6 +38,8 @@ export function TerminalView({ terminalId, cliType }) {
     });
     instanceRef.current = instance;
     instance.attachToElement(host);
+    instance.setVisible(visible);
+    if (visible) instance.focus();
 
     return () => {
       if (instanceRef.current === instance) instanceRef.current = null;
@@ -48,6 +50,17 @@ export function TerminalView({ terminalId, cliType }) {
   useEffect(() => {
     instanceRef.current?.setCliType(cliType);
   }, [cliType, terminalId, reattachNonce]);
+
+  useEffect(() => {
+    const instance = instanceRef.current;
+    if (!instance) return;
+    instance.setVisible(visible);
+    if (visible) {
+      instance.focus();
+    } else {
+      instance.blur();
+    }
+  }, [visible, terminalId, reattachNonce]);
 
   if (!terminalId) {
     return html`<div class="terminal-empty">Select a terminal on the left, or launch a new one.</div>`;
@@ -80,6 +93,6 @@ export function TerminalView({ terminalId, cliType }) {
   return html`
     <${Fragment}>
       <div key="host" ref=${hostRef} class="terminal-host"></div>
-      <${TerminalKeyBar} send=${sendInput} cliType=${cliType} />
+      ${visible ? html`<${TerminalKeyBar} send=${sendInput} cliType=${cliType} />` : null}
     </${Fragment}>`;
 }

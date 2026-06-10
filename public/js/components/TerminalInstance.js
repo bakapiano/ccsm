@@ -63,6 +63,14 @@ export class TerminalInstance {
     this.xterm.applyResolvedTheme();
   }
 
+  focus() {
+    this.xterm.focus();
+  }
+
+  blur() {
+    this.xterm.blur();
+  }
+
   layout(width, height, immediate = false) {
     const layoutDimensions = this._resolveLayoutDimensions(width, height);
     if (!layoutDimensions) return null;
@@ -361,6 +369,9 @@ export class TerminalInstance {
     this._beginReplay();
     this.xterm.write(data, () => {
       this._endReplay();
+      if (this.isVisible) {
+        this.scheduleLayout({ immediate: true, retries: true, forceRedraw: true });
+      }
     });
   }
 

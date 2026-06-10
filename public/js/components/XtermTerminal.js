@@ -99,6 +99,7 @@ export class XtermTerminal {
   attachToElement(host) {
     this.host = host;
     this.raw.open(host);
+    host.xterm = this.raw;
     this._enableWebglRenderer();
     try {
       document.fonts?.ready?.then(() => {
@@ -195,6 +196,14 @@ export class XtermTerminal {
     try { this.raw.focus(); } catch {}
   }
 
+  blur() {
+    try {
+      if (this.helperTextarea && document.activeElement === this.helperTextarea) {
+        this.helperTextarea.blur();
+      }
+    } catch {}
+  }
+
   onData(listener) {
     return this.raw.onData(listener);
   }
@@ -208,6 +217,9 @@ export class XtermTerminal {
   }
 
   dispose() {
+    if (this.host?.xterm === this.raw) {
+      try { delete this.host.xterm; } catch { this.host.xterm = undefined; }
+    }
     this.host = null;
     this._disposeWebglRenderer(false);
     this.refreshDimensionListeners.clear();

@@ -13,16 +13,18 @@ import { ccsmConfirm, ccsmPrompt } from '../dialog.js';
 import { TerminalView } from '../components/TerminalView.js';
 import { PageTitleBar } from '../components/PageTitleBar.js';
 import { Popover } from '../components/Popover.js';
+import { useDragSort } from '../components/useDragSort.js';
 import { IconMoreVert, IconPencil, IconClose, IconPlus, IconForCliType, IconTerminal, IconExternal, IconPlay, IconStop } from '../icons.js';
 import { fmtAgo } from '../util.js';
 
-function SessionTabs({ activeId, onActivate, onNew, kebab }) {
-  // For now we only show the currently active session as a single tab —
-  // other open sessions are hidden, and the "+ new" affordance is parked
-  // until multi-tab UX lands.
+function SessionTabs({ activeId, openSessions, onActivate, onClose, onReorder, onNew, kebab }) {
   const active = activeId ? sessions.value.find((s) => s.id === activeId) : null;
-  if (!active) return null;
-  const open = [active];
+  const base = Array.isArray(openSessions) ? openSessions : [];
+  const open = active && !base.some((s) => s.id === active.id)
+    ? [...base, active]
+    : base;
+  const dnd = useDragSort(open.map((s) => s.id), onReorder);
+  if (!open.length) return null;
   return html`
     <div class="session-tabs" role="tablist">
       <div class="session-tabs-list">
@@ -31,17 +33,45 @@ function SessionTabs({ activeId, onActivate, onNew, kebab }) {
           const Icon = IconForCliType(cli?.type) || IconTerminal;
           const t = s.title || s.workspace || s.id.slice(0, 12);
           const isActive = s.id === activeId;
+          const running = s.status === 'running';
+          const working = running && s.activity === 'working';
+          const statusText = running ? (working ? 'running, working' : 'running') : 'stopped';
+          const statusClass = `${running ? ' is-running' : ' is-stopped'}${working ? ' is-working' : ''}`;
+          const onKeyDown = (ev) => {
+            if (ev.key !== 'Enter' && ev.key !== ' ') return;
+            ev.preventDefault();
+            onActivate(s.id);
+          };
           return html`
-            <button key=${s.id}
-                    role="tab"
-                    aria-selected=${isActive}
-                    class=${`session-tab${isActive ? ' is-active' : ''}`}
-                    onClick=${() => onActivate(s.id)}
-                    title=${`${t} · ${s.cwd}`}>
-              <span class="session-tab-icon"><${Icon} /></span>
-              <span class="session-tab-label">${t}</span>
-              ${s.status !== 'running' ? html`<span class="session-tab-meta">·</span>` : null}
-            </button>`;
+            <div key=${s.id}
+                 role="tab"
+                 aria-selected=${isActive}
+                 aria-label=${`${t}, ${statusText}`}
+                 tabIndex=${0}
+                 class=${`session-tab${isActive ? ' is-active' : ''}${statusClass}`}
+                 data-session-id=${s.id}
+                 title=${`${t} · ${statusText} · ${s.cwd}`}
+                 onKeyDown=${onKeyDown}
+                 ...${dnd.rowProps(s.id)}>
+              <div class="session-tab-main"
+                   onClick=${() => onActivate(s.id)}
+                   ...${dnd.handleProps(s.id)}>
+                <span class="session-tab-icon"><${Icon} /></span>
+                <span class="session-tab-label">${t}</span>
+              </div>
+              <button class="session-tab-close"
+                      type="button"
+                      title="Close tab"
+                      aria-label=${`Close ${t}`}
+                      onPointerDown=${(ev) => ev.stopPropagation()}
+                      onClick=${(ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        onClose(s.id);
+                      }}>
+                <${IconClose} />
+              </button>
+            </div>`;
         })}
         ${/* <button class="session-tab session-tab-add" onClick=${onNew} title="New session">
           <${IconPlus} />
@@ -116,8 +146,10 @@ export function SessionsPage() {
   const id = activeSessionId.value;
   const list = sessions.value;
   const session = id ? list.find((s) => s.id === id) : null;
+  const runningSessions = list.filter((s) => s.status === 'running');
   const [resumeError, setResumeError] = useState(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [openTerminalIds, setOpenTerminalIds] = useState(() => new Set());
   // Bumps to force the auto-resume effect to re-run on Retry without
   // mutating any signal. Primitive in the dep array → identity changes.
   const [retryNonce, setRetryNonce] = useState(0);
@@ -142,14 +174,77 @@ export function SessionsPage() {
       .catch((e) => { setResumeError(e.message); setToast(e.message, 'error'); });
   }, [session?.id, session?.status, session?.cliId, session?.manualStopped, retryNonce]);
 
+  useEffect(() => {
+    const runningIds = new Set(runningSessions.map((s) => s.id));
+    setOpenTerminalIds((prev) => {
+      const next = new Set();
+      let changed = false;
+      for (const sid of prev) {
+        if (runningIds.has(sid)) {
+          next.add(sid);
+        } else {
+          changed = true;
+        }
+      }
+      if (session?.status === 'running' && !next.has(session.id)) {
+        next.add(session.id);
+        changed = true;
+      }
+      return changed || next.size !== prev.size ? next : prev;
+    });
+  }, [list, session?.id, session?.status]);
+
   if (!session) return null;
 
   const cli = (config.value?.clis || []).find((c) => c.id === session.cliId);
+  const cliForSession = (s) => (config.value?.clis || []).find((c) => c.id === s.cliId);
   const switchableClis = cli
     ? (config.value?.clis || []).filter((c) => c.id !== cli.id && c.type === cli.type)
     : [];
   const running = session.status === 'running';
+  const retainedSessions = Array.from(openTerminalIds)
+    .map((sid) => list.find((s) => s.id === sid))
+    .filter((s) => s && s.status === 'running');
+  const terminalSessions = running && !retainedSessions.some((s) => s.id === session.id)
+    ? [...retainedSessions, session]
+    : retainedSessions;
   const title = session.title || session.workspace || session.id.slice(0, 12);
+
+  const onCloseTab = (sid) => {
+    setOpenTerminalIds((prev) => {
+      if (!prev.has(sid)) return prev;
+      const next = new Set(prev);
+      next.delete(sid);
+      return next;
+    });
+
+    if (sid !== session.id) return;
+    const currentIndex = terminalSessions.findIndex((s) => s.id === sid);
+    const remaining = terminalSessions.filter((s) => s.id !== sid);
+    const replacement = currentIndex >= 0
+      ? remaining[Math.min(currentIndex, remaining.length - 1)] || remaining[remaining.length - 1]
+      : remaining[0];
+    if (replacement) {
+      selectSession(replacement.id);
+    } else {
+      activeSessionId.value = null;
+      selectTab('launch');
+    }
+  };
+
+  const onReorderTabs = (orderedIds) => {
+    const runningIds = new Set(runningSessions.map((s) => s.id));
+    setOpenTerminalIds((prev) => {
+      const nextIds = [];
+      for (const sid of orderedIds) {
+        if (runningIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
+      }
+      for (const sid of prev) {
+        if (runningIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
+      }
+      return new Set(nextIds);
+    });
+  };
 
   const onResume = async () => {
     clearResumeFailure(session.id);
@@ -236,7 +331,10 @@ export function SessionsPage() {
       `} />
     <${SessionTabs}
       activeId=${session.id}
+      openSessions=${terminalSessions}
       onActivate=${(sid) => selectSession(sid)}
+      onClose=${onCloseTab}
+      onReorder=${onReorderTabs}
       onNew=${() => selectTab('launch')}
       kebab=${html`
         <${SessionControls} running=${running}
@@ -251,9 +349,29 @@ export function SessionsPage() {
                         onSwitchCli=${onSwitchCli} />`} />
     <div class="session-pane">
       <div class="session-pane-body">
-        ${running
-          ? html`<${TerminalView} terminalId=${session.id} cliType=${cli?.type} />`
-          : html`
+        ${terminalSessions.length ? html`
+          <div class="terminal-stack">
+            ${terminalSessions.map((s) => {
+              const sCli = cliForSession(s);
+              const active = running && s.id === session.id;
+              return html`
+                <div key=${s.id}
+                     class=${`terminal-layer${active ? ' is-active' : ''}`}
+                     data-terminal-id=${s.id}
+                     data-active=${active || null}
+                     aria-hidden=${!active}>
+                  <${TerminalView}
+                    key=${s.id}
+                    terminalId=${s.id}
+                    cliType=${sCli?.type}
+                    visible=${active}
+                  />
+                </div>`;
+            })}
+          </div>
+        ` : null}
+        ${!running
+          ? html`
             <div class="terminal-empty">
               ${resumeError ? html`
                 <div>Failed to resume: <span class="mono">${resumeError}</span></div>
@@ -266,7 +384,8 @@ export function SessionsPage() {
               ` : html`
                 <div>Resuming session…</div>
               `}
-            </div>`}
+            </div>`
+          : null}
       </div>
     </div>`;
 }
