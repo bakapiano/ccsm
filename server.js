@@ -472,6 +472,18 @@ function stripTunnelKeys(cfg) {
   delete rest.devtunnel;
   return rest;
 }
+
+function workspaceOccupancySessions(sessions, cfg) {
+  const includeStopped = cfg?.reserveWorkspacesForStoppedSessions === true;
+  return (sessions || []).filter((s) =>
+    s && s.cwd && (includeStopped || s.status === 'running')
+  );
+}
+
+function workspaceOccupancyLabel(cfg) {
+  return cfg?.reserveWorkspacesForStoppedSessions === true ? 'session' : 'running session';
+}
+
 app.get('/api/config', asyncH(async (_req, res) => {
   res.json(decorateConfigWithProbes(stripTunnelKeys(await loadConfig())));
 }));
@@ -803,28 +815,24 @@ app.get('/api/browse', asyncH(async (req, res) => {
 
 app.get('/api/workspaces', asyncH(async (req, res) => {
   const cfg = await loadConfig();
+  const allSess = await persistedSessions.loadAll();
+  const occupying = workspaceOccupancySessions(allSess, cfg);
+  const busyPaths = occupying.map((s) => s.cwd);
   const workspaces = await listWorkspaces({
     workDir: cfg.workDir,
     repos: cfg.repos,
+    busyPaths,
   });
-  // Recompute inUse based on persistedSessions: a workspace is in use
-  // iff any RUNNING ccsm session lives at-or-inside it.
-  const allSess = await persistedSessions.loadAll();
-  const busy = new Set(
-    allSess.filter((s) => s.status === 'running').map((s) => path.resolve(s.cwd).toLowerCase())
-  );
   for (const w of workspaces) {
-    w.inUse = busy.has(path.resolve(w.path).toLowerCase());
-    w.sessionsHere = allSess
-      .filter((s) => s.status === 'running' && path.resolve(s.cwd).toLowerCase() === path.resolve(w.path).toLowerCase())
-      .map((s) => s.id);
+    w.sessionsHere = occupying.filter((s) => isInside(s.cwd, w.path)).map((s) => s.id);
+    w.inUse = w.sessionsHere.length > 0;
   }
   res.json({ workDir: cfg.workDir, repos: cfg.repos, workspaces });
 }));
 
-// Delete a workspace directory. Refuses if any RUNNING session lives
-// inside it, or if the resolved path escapes workDir. The name comes
-// from the URL — we resolve it against workDir and verify containment.
+// Delete a workspace directory. Refuses if a session currently reserves
+// it, or if the resolved path escapes workDir. The name comes from the
+// URL — we resolve it against workDir and verify containment.
 app.delete('/api/workspaces/:name', asyncH(async (req, res) => {
   const fsp = require('node:fs/promises');
   const cfg = await loadConfig();
@@ -844,10 +852,11 @@ app.delete('/api/workspaces/:name', asyncH(async (req, res) => {
     return res.status(404).json({ error: 'workspace not found' });
   }
   const allSess = await persistedSessions.loadAll();
-  const inUse = allSess.some((s) =>
-    s.status === 'running' && isInside(s.cwd, target)
-  );
-  if (inUse) return res.status(409).json({ error: 'workspace is in use by a running session' });
+  const occupying = workspaceOccupancySessions(allSess, cfg);
+  const inUse = occupying.some((s) => isInside(s.cwd, target));
+  if (inUse) {
+    return res.status(409).json({ error: `workspace is in use by a ${workspaceOccupancyLabel(cfg)}` });
+  }
   await fsp.rm(target, { recursive: true, force: true });
   res.json({ ok: true });
 }));
@@ -898,17 +907,19 @@ app.post('/api/sessions/new', async (req, res) => {
       }
       workspace = { name: path.basename(cwd) || cwd, path: cwd };
     } else if (req.body && req.body.workspace) {
-      const all = await listWorkspaces({ workDir: cfg.workDir, repos: cfg.repos });
+      const allSess = await persistedSessions.loadAll();
+      const busyPaths = workspaceOccupancySessions(allSess, cfg).map((s) => s.cwd);
+      const all = await listWorkspaces({ workDir: cfg.workDir, repos: cfg.repos, busyPaths });
       workspace = all.find((w) => w.name === req.body.workspace);
       if (!workspace) return fail(`workspace ${req.body.workspace} not found`);
+      if (workspace.inUse) {
+        return fail(`workspace ${req.body.workspace} is already used by a ${workspaceOccupancyLabel(cfg)}`);
+      }
     } else {
-      // Collect cwds of currently-running persisted sessions so
-      // findOrCreateWorkspace can flag those workspaces as in-use and
-      // skip past ws-1 when it's already occupied.
-      const running = await persistedSessions.loadAll();
-      const busyPaths = running
-        .filter((s) => s.status === 'running')
-        .map((s) => s.cwd);
+      // Collect cwds of sessions that currently reserve workspaces so
+      // findOrCreateWorkspace can flag them as in-use and skip past them.
+      const allSess = await persistedSessions.loadAll();
+      const busyPaths = workspaceOccupancySessions(allSess, cfg).map((s) => s.cwd);
       const r = await findOrCreateWorkspace({
         workDir: cfg.workDir,
         repos: cfg.repos,
@@ -1150,7 +1161,9 @@ async function codexThemeArgs(cli, theme) {
   if (userSet) return [];
   try {
     const { probeCodexHome, ensureCodexLightTheme } = require('./lib/codexSeed');
-    const home = await probeCodexHome({ command: cli.command, shell: cli.shell });
+    let home = null;
+    try { home = await probeCodexHome({ command: cli.command, shell: cli.shell }); } catch {}
+    home = home || process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
     if (!(await ensureCodexLightTheme(home))) return [];
     return ['-c', 'tui.theme="ccsm-light"'];
   } catch { return []; }

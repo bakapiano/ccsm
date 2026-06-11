@@ -154,7 +154,11 @@ export function ConfigurePage() {
 
   useEffect(() => {
     if (cfg && !general) {
-      setGeneral({ workDir: cfg.workDir, editor: cfg.editor });
+      setGeneral({
+        workDir: cfg.workDir,
+        editor: cfg.editor,
+        reserveWorkspacesForStoppedSessions: !!cfg.reserveWorkspacesForStoppedSessions,
+      });
     }
   }, [cfg]);
 
@@ -168,6 +172,7 @@ export function ConfigurePage() {
         ...cfg,
         workDir: (merged.workDir || '').trim(),
         editor: (merged.editor || '').trim(),
+        reserveWorkspacesForStoppedSessions: !!merged.reserveWorkspacesForStoppedSessions,
       });
       config.value = saved;
       setToast('saved');
@@ -303,6 +308,14 @@ export function ConfigurePage() {
           <input type="text" value=${general.workDir}
                  onChange=${(e) => saveGeneral({ workDir: e.target.value })} />
         </label>
+        <label class="field toggle">
+          <input type="checkbox" checked=${!!general.reserveWorkspacesForStoppedSessions}
+                 onChange=${(e) => saveGeneral({ reserveWorkspacesForStoppedSessions: e.target.checked })} />
+          <span class="toggle-text">
+            <span class="label">Reserve stopped sessions</span>
+            <span class="hint">Stopped sessions keep their workspace marked in use until the session is deleted.</span>
+          </span>
+        </label>
       </div>
       <${WorkspaceList} />
     </${Section}>
@@ -421,11 +434,13 @@ function EntityList({ items, onAdd, onEdit, onDelete, onActivate, emptyHint, dnd
 // ── Workspace list ───────────────────────────────────────────────────
 function WorkspaceList() {
   const ws = workspaces.value || [];
+  const reserveStopped = !!config.value?.reserveWorkspacesForStoppedSessions;
+  const inUseBy = reserveStopped ? 'session' : 'running session';
   if (ws.length === 0) {
     return html`<div class="entity-empty">No workspaces yet — they're created automatically on launch.</div>`;
   }
   const onDelete = async (w) => {
-    if (w.inUse) return setToast(`"${w.name}" is in use by a running session`, 'error');
+    if (w.inUse) return setToast(`"${w.name}" is in use by a ${inUseBy}`, 'error');
     const ok = await ccsmConfirm(
       `Delete workspace "${w.name}"? This removes the directory and all repo clones inside.`,
       { okLabel: 'Delete', danger: true },
@@ -456,7 +471,7 @@ function WorkspaceList() {
           </span>
           <span class="entity-row-actions">
             <button class=${`entity-row-action danger${w.inUse ? ' is-disabled' : ''}`}
-                    title=${w.inUse ? 'In use by a running session' : 'Delete'}
+                    title=${w.inUse ? `In use by a ${inUseBy}` : 'Delete'}
                     disabled=${w.inUse}
                     onClick=${() => onDelete(w)}><${IconClose} /></button>
           </span>

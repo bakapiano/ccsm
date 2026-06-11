@@ -24,6 +24,8 @@ export class TerminalInstance {
     this.lastLayoutDimensions = null;
     this.lastSentDimensions = null;
     this.pendingLayoutFrame = null;
+    this.themeRefreshTimer = null;
+    this.pendingThemeRefresh = false;
     this.layoutRetryTimers = new Set();
     this.disposables = [];
     this.helperTextarea = null;
@@ -61,6 +63,8 @@ export class TerminalInstance {
 
   applyTheme() {
     this.xterm.applyResolvedTheme();
+    this.xterm.forceRedraw();
+    this._scheduleThemeRefreshForCli();
   }
 
   focus() {
@@ -116,6 +120,10 @@ export class TerminalInstance {
     if (nextVisible) {
       this.resizeDebouncer.flush();
       this.scheduleLayout({ immediate: true, retries: true, forceRedraw: true });
+      if (this.pendingThemeRefresh) {
+        this.pendingThemeRefresh = false;
+        this._scheduleThemeRefreshForCli();
+      }
     }
     return didChange;
   }
@@ -123,6 +131,9 @@ export class TerminalInstance {
   dispose() {
     this.closedByUs = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.themeRefreshTimer) clearTimeout(this.themeRefreshTimer);
+    this.themeRefreshTimer = null;
+    this.pendingThemeRefresh = false;
     this._cancelScheduledLayout();
     this.resizeDebouncer.dispose();
     for (const dispose of this.disposables.splice(0)) {
@@ -338,6 +349,23 @@ export class TerminalInstance {
     if (this.ws && this.ws.readyState === 1) {
       this.ws.send(JSON.stringify(frame));
     }
+  }
+
+  _scheduleThemeRefreshForCli() {
+    if (this.cliType !== 'codex') return;
+    if (!this.isVisible) {
+      this.pendingThemeRefresh = true;
+      return;
+    }
+    if (this.themeRefreshTimer) clearTimeout(this.themeRefreshTimer);
+    // Codex caches terminal default colours for its composer. A focus-in
+    // event makes it re-query OSC 10/11, which our handlers answer from the
+    // just-applied xterm theme.
+    this.themeRefreshTimer = setTimeout(() => {
+      this.themeRefreshTimer = null;
+      if (this.closedByUs || this.cliType !== 'codex' || !this.isVisible) return;
+      this._sendFrame({ type: 'input', data: '\x1b[I' });
+    }, 40);
   }
 
   _sendResize(cols, rows, force = false) {
