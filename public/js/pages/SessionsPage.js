@@ -198,7 +198,7 @@ export function SessionsPage() {
   const cli = (config.value?.clis || []).find((c) => c.id === session.cliId);
   const cliForSession = (s) => (config.value?.clis || []).find((c) => c.id === s.cliId);
   const switchableClis = cli
-    ? (config.value?.clis || []).filter((c) => c.id !== cli.id && c.type === cli.type)
+    ? (config.value?.clis || []).filter((c) => c.id !== cli.id)
     : [];
   const running = session.status === 'running';
   const openSessions = Array.from(openTerminalIds)

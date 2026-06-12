@@ -24,7 +24,7 @@ export function nowClock() {
 }
 
 // Shell-style argv tokenizer / formatter used by the CLI editor's
-// args / resumeIdArgs / newSessionIdArgs fields. Modeled on POSIX sh
+// args / resumeLatestArgs / resumePickerArgs fields. Modeled on POSIX sh
 // word splitting + bash quoting (the rules every dev already has in
 // muscle memory) — not a full shell parser. Handles:
 //   bare token        -Model         → "-Model"

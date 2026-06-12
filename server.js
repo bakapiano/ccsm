@@ -3,7 +3,6 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const crypto = require('node:crypto');
 const express = require('express');
 
 const { loadConfig, saveConfig, DATA_DIR } = require('./lib/config');
@@ -18,14 +17,6 @@ const persistedSessions = require('./lib/persistedSessions');
 const folders = require('./lib/folders');
 const tunnel = require('./lib/tunnel');
 const devices = require('./lib/devices');
-// Upstream CLI session-id capture used to live in lib/cliSessionWatcher
-// (poll the CLI's transcript dir, match by cwd). It's gone now — for
-// CLIs that expose a "set the UUID for a new session" flag (claude +
-// copilot both have --session-id <uuid>) we pre-generate the id in
-// /api/sessions/new and pass it via cli.newSessionIdArgs. For CLIs
-// without that flag (codex) we just don't capture an id; the user
-// gets cli.resumeArgs (--continue / resume --last) on relaunch.
-const localCliSessions = require('./lib/localCliSessions');
 
 // One unified exit path: kill PTY children, then exit. v1.0 dropped the
 // snapshot-on-exit behaviour because the new persistedSessions store is
@@ -302,8 +293,8 @@ function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [], theme, col
   // terminal — the "字体颜色和背景重复" bug. --settings is session-scoped, so
   // the user's global ~/.claude/settings.json is left untouched, and ccsm
   // sessions Just Work on a fresh machine without anyone running /theme auto.
-  // (Injected here as an integration arg, like --session-id — not via the
-  // user-editable cli.args, so it reaches existing configs too.)
+  // (Injected here as an integration arg, not via the user-editable
+  // cli.args, so it reaches existing configs too.)
   // Skip the injection entirely if the user already put their own --settings
   // in cli.args — claude deep-merges multiple --settings (verified: later ones
   // win per-key), so ours would silently override a theme they set on purpose.
@@ -474,14 +465,55 @@ function stripTunnelKeys(cfg) {
 }
 
 function workspaceOccupancySessions(sessions, cfg) {
-  const includeStopped = cfg?.reserveWorkspacesForStoppedSessions === true;
-  return (sessions || []).filter((s) =>
-    s && s.cwd && (includeStopped || s.status === 'running')
-  );
+  return (sessions || []).filter((s) => s && s.cwd);
 }
 
 function workspaceOccupancyLabel(cfg) {
-  return cfg?.reserveWorkspacesForStoppedSessions === true ? 'session' : 'running session';
+  return 'session';
+}
+
+function launchCwdFor(workspace, wantedRepos, explicitCwd) {
+  return explicitCwd
+    ? workspace.path
+    : (wantedRepos.length === 1 ? path.join(workspace.path, wantedRepos[0].name) : workspace.path);
+}
+
+function resumeMode(cfg) {
+  return cfg?.resumeMode === 'picker' ? 'picker' : 'latest';
+}
+
+function buildFolderResumeArgs(cli, cfg) {
+  const mode = resumeMode(cfg);
+  const field = mode === 'picker' ? 'resumePickerArgs' : 'resumeLatestArgs';
+  const args = Array.isArray(cli?.[field]) ? cli[field] : [];
+  if (args.length === 0) {
+    throw new Error(`CLI ${cli?.id || '(unknown)'} has no ${field} configured`);
+  }
+  return args;
+}
+
+async function spawnSessionRecord({ record, cli, cfg, body, resume = false }) {
+  const live = webTerminal.get(record.id);
+  if (live && !live.exitedAt) {
+    if (record.status !== 'running' || record.pid !== live.meta.pid) {
+      try { await persistedSessions.markRunning(record.id, live.meta.pid); } catch {}
+    }
+    return { id: record.id, pid: live.meta.pid, cliId: record.cliId };
+  }
+  const themeArgs = await codexThemeArgs(cli, body && body.theme);
+  const folderResumeArgs = resume ? buildFolderResumeArgs(cli, cfg) : [];
+  const entry = spawnCliSession({
+    cli,
+    cwd: record.cwd,
+    sessionId: record.id,
+    meta: { title: record.title || record.workspace, workspace: record.workspace, cwd: record.cwd },
+    extraArgs: [...themeArgs, ...folderResumeArgs],
+    theme: body && body.theme,
+    cols: body && body.cols,
+    rows: body && body.rows,
+  });
+  await persistedSessions.markRunning(record.id, entry.meta.pid);
+  return { id: record.id, pid: entry.meta.pid, cliId: cli.id };
 }
 
 app.get('/api/config', asyncH(async (_req, res) => {
@@ -655,10 +687,9 @@ app.put('/api/sessions/:id', asyncH(async (req, res) => {
   res.json({ session: updated });
 }));
 
-// Switch the CLI config used to resume an existing session. This is
-// intentionally narrower than the generic PUT route: a session can only
-// move between configured CLIs of the same type (e.g. one claude wrapper
-// to another) so its captured upstream cliSessionId stays meaningful.
+// Switch the CLI config used to resume an existing session. Folder-level
+// resume only depends on the record cwd, so this is just a persisted
+// preference for the next launch.
 app.post('/api/sessions/:id/switch-cli', asyncH(async (req, res) => {
   const targetCliId = typeof req.body?.cliId === 'string' ? req.body.cliId.trim() : '';
   if (!targetCliId) return res.status(400).json({ error: 'cliId required' });
@@ -671,11 +702,6 @@ app.post('/api/sessions/:id/switch-cli', asyncH(async (req, res) => {
   const targetCli = findCliById(cfg, targetCliId);
   if (!currentCli) return res.status(400).json({ error: `current CLI ${record.cliId} no longer configured` });
   if (!targetCli) return res.status(400).json({ error: `target CLI ${targetCliId} not configured` });
-  if (currentCli.type !== targetCli.type) {
-    return res.status(400).json({
-      error: `cannot switch ${currentCli.type} session to ${targetCli.type} CLI`,
-    });
-  }
 
   if (record.cliId === targetCli.id) {
     const live = webTerminal.get(record.id);
@@ -690,7 +716,6 @@ app.post('/api/sessions/:id/switch-cli', asyncH(async (req, res) => {
     running: !!(live && !live.exitedAt),
     fromCliId: currentCli.id,
     toCliId: targetCli.id,
-    cliType: targetCli.type,
   });
 }));
 
@@ -912,9 +937,6 @@ app.post('/api/sessions/new', async (req, res) => {
       const all = await listWorkspaces({ workDir: cfg.workDir, repos: cfg.repos, busyPaths });
       workspace = all.find((w) => w.name === req.body.workspace);
       if (!workspace) return fail(`workspace ${req.body.workspace} not found`);
-      if (workspace.inUse) {
-        return fail(`workspace ${req.body.workspace} is already used by a ${workspaceOccupancyLabel(cfg)}`);
-      }
     } else {
       // Collect cwds of sessions that currently reserve workspaces so
       // findOrCreateWorkspace can flag them as in-use and skip past them.
@@ -930,6 +952,43 @@ app.post('/api/sessions/new', async (req, res) => {
       created = r.created;
     }
     emit({ type: 'workspace', workspace, created });
+
+    const launchCwd = launchCwdFor(workspace, wantedRepos, req.body && req.body.cwd);
+    const existing = await persistedSessions.findByCliAndCwd(cli.id, launchCwd);
+    if (workspace.inUse && !existing) {
+      return fail(`workspace ${workspace.name} is already used by a ${workspaceOccupancyLabel(cfg)}`);
+    }
+
+    const shouldLaunch = req.body && req.body.launch !== false;
+    if (existing) {
+      let launched = null;
+      if (shouldLaunch) {
+        try {
+          launched = await spawnSessionRecord({
+            record: existing,
+            cli,
+            cfg,
+            body: req.body,
+            resume: true,
+          });
+          emit({ type: 'launched', launched });
+        } catch (e) {
+          return fail(`spawn failed: ${e.message}`);
+        }
+      }
+      emit({
+        type: 'done',
+        success: true,
+        workspace,
+        created: false,
+        reused: true,
+        session: existing,
+        cloneResults: [],
+        launched,
+      });
+      res.end();
+      return;
+    }
 
     // Skip clone entirely when user picked an existing directory — we
     // don't want to dump random repos into someone's project.
@@ -948,56 +1007,28 @@ app.post('/api/sessions/new', async (req, res) => {
     const failed = cloneResults.filter((r) => !r.ok);
     if (failed.length > 0) return fail('Some repos failed to clone', { cloneResults });
 
-    const shouldLaunch = req.body && req.body.launch !== false;
     let launched = null;
+    let record = null;
     if (shouldLaunch) {
-      // Pre-assign the upstream CLI session UUID so we never have to
-      // poll/scan the transcript dir to find out what id the CLI picked.
-      //   - claude / copilot expose `--session-id <uuid>` natively.
-      //   - codex has no flag, but accepts `resume <uuid>` against a
-      //     pre-existing rollout file. We seed a fake file (see
-      //     lib/codexSeed.js) so the first launch is a resume against
-      //     our seed; codex then appends to the same file.
-      const newIdTpl = Array.isArray(cli.newSessionIdArgs) ? cli.newSessionIdArgs : [];
-      const preAssignedId = newIdTpl.length > 0 ? crypto.randomUUID() : null;
-      const newSessionArgs = preAssignedId
-        ? newIdTpl.map((a) => (typeof a === 'string' ? a.replace(/<id>/g, preAssignedId) : a))
-        : [];
-
-      if (preAssignedId && cli.type === 'codex') {
-        try {
-          const { seedCodexSession } = require('./lib/codexSeed');
-          await seedCodexSession({ id: preAssignedId, cwd: workspace.path, cli });
-        } catch (e) {
-          return fail(`codex seed failed: ${e.message}`);
-        }
-      }
-
       // Create the persistedSessions record FIRST so spawnCliSession can
       // use its id as the PTY id (matching ids simplify resume/attach).
-      const record = await persistedSessions.create({
+      const createdRecord = await persistedSessions.createOrGetByCliAndCwd({
         cliId: cli.id,
-        cwd: workspace.path,
+        cwd: launchCwd,
         workspace: workspace.name,
         repos: wantedRepos.map((r) => r.name),
         folderId: (req.body && req.body.folderId) || null,
         title: '',
-        cliSessionId: preAssignedId || undefined,
       });
+      record = createdRecord.entry;
       try {
-        const themeArgs = await codexThemeArgs(cli, req.body && req.body.theme);
-        const entry = spawnCliSession({
+        launched = await spawnSessionRecord({
+          record,
           cli,
-          cwd: workspace.path,
-          sessionId: record.id,
-          meta: { title: workspace.name, workspace: workspace.name, cwd: workspace.path },
-          extraArgs: [...themeArgs, ...newSessionArgs],
-          theme: req.body && req.body.theme,
-          cols: req.body && req.body.cols,
-          rows: req.body && req.body.rows,
+          cfg,
+          body: req.body,
+          resume: !createdRecord.created,
         });
-        await persistedSessions.markRunning(record.id, entry.meta.pid);
-        launched = { id: record.id, pid: entry.meta.pid, cliId: cli.id };
         emit({ type: 'launched', launched });
       } catch (e) {
         await persistedSessions.markExited(record.id, null);
@@ -1005,98 +1036,13 @@ app.post('/api/sessions/new', async (req, res) => {
       }
     }
 
-    emit({ type: 'done', success: true, workspace, created, cloneResults, launched });
+    emit({ type: 'done', success: true, workspace, created, cloneResults, launched, session: record });
     res.end();
   } catch (e) {
     console.error('[/api/sessions/new]', e);
     fail(String(e && e.message || e));
   }
 });
-
-// ---- list local CLI sessions discovered on disk (for "adopt") ----
-// Returns sessions found in ~/.claude / ~/.codex / ~/.copilot that
-// aren't yet adopted by ccsm. Frontend uses this in the Import modal.
-app.get('/api/cli-sessions/:cliType', asyncH(async (req, res) => {
-  const type = String(req.params.cliType || '').toLowerCase();
-  if (!['claude', 'codex', 'copilot'].includes(type)) {
-    return res.status(400).json({ error: `unsupported cli type: ${type}` });
-  }
-  const offset = Math.max(0, Number(req.query.offset) || 0);
-  const limit  = Math.min(200, Math.max(1, Number(req.query.limit) || 30));
-
-  const [page, adopted] = await Promise.all([
-    localCliSessions.listPaginated(type, { offset, limit }),
-    persistedSessions.loadAll(),
-  ]);
-
-  const adoptedIds = new Set(adopted.map((s) => s.cliSessionId).filter(Boolean));
-  const sessions = page.sessions.map((s) => ({
-    ...s,
-    adopted: adoptedIds.has(s.cliSessionId),
-  }));
-  res.json({
-    sessions,
-    totalActive: page.totalActive,
-    totalNonActive: page.totalNonActive,
-    total: page.totalActive + page.totalNonActive,
-    offset: page.offset,
-    limit: page.limit,
-    hasMore: page.hasMore,
-  });
-}));
-
-// ---- adopt: create a ccsm record pointing at an existing CLI session ----
-// Body: { cliId, cliSessionId, cwd, title?, folderId? }
-// Doesn't spawn — the new entry shows up as "exited" in the sidebar;
-// clicking it kicks off the regular resume flow which uses
-// `cli.resumeIdArgs` ('--resume <id>') so the upstream session reattaches.
-app.post('/api/sessions/adopt', asyncH(async (req, res) => {
-  const { cliId, cliSessionId, cwd, title, folderId } = req.body || {};
-  if (!cliId || !cliSessionId || !cwd) {
-    return res.status(400).json({ error: 'cliId, cliSessionId and cwd required' });
-  }
-  const cfg = await loadConfig();
-  const cli = pickCli(cfg, cliId);
-  if (!cli) return res.status(400).json({ error: `CLI ${cliId} not configured` });
-
-  // Normalize the cwd up front. /api/sessions/new also resolves cwd, and
-  // the workspaces "in use" check (GET /api/workspaces) does
-  // path.resolve(s.cwd).toLowerCase() — adopted records must match the
-  // same shape, otherwise an adopted+running session leaves its
-  // workspace falsely marked as free and a fresh launch could collide.
-  const resolvedCwd = path.resolve(cwd);
-  try {
-    const fsmod = require('node:fs/promises');
-    const st = await fsmod.stat(resolvedCwd);
-    if (!st.isDirectory()) {
-      return res.status(400).json({ error: `cwd is not a directory: ${resolvedCwd}` });
-    }
-  } catch (e) {
-    return res.status(400).json({ error: `cwd not found: ${resolvedCwd}` });
-  }
-
-  // Refuse duplicates: if any ccsm record already owns this upstream
-  // session id, return it so the caller can jump to it.
-  const all = await persistedSessions.loadAll();
-  const dup = all.find((s) => s.cliSessionId === cliSessionId);
-  if (dup) return res.json({ session: dup, alreadyAdopted: true });
-
-  const workspace = path.basename(resolvedCwd) || resolvedCwd;
-  // Create directly with status='exited' + cliSessionId set, so a
-  // concurrent GET /api/sessions can never observe a "running but no
-  // PTY" intermediate state.
-  const record = await persistedSessions.create({
-    cliId,
-    cwd: resolvedCwd,
-    workspace,
-    folderId: folderId || null,
-    title: title || '',
-    repos: [],
-    status: 'exited',
-    cliSessionId,
-  });
-  res.json({ session: record, alreadyAdopted: false });
-}));
 
 // ---- resume a previous session in the same cwd / cli ----
 app.post('/api/sessions/:id/resume', asyncH(async (req, res) => {
@@ -1116,27 +1062,17 @@ app.post('/api/sessions/:id/resume', asyncH(async (req, res) => {
     return res.json({ launched: { id: record.id, pid: live.meta.pid, cliId: record.cliId } });
   }
   const cfg = await loadConfig();
-  const cli = pickCli(cfg, record.cliId);
+  const cli = findCliById(cfg, record.cliId);
   if (!cli) return res.status(400).json({ error: `CLI ${record.cliId} no longer configured` });
   try {
-    // Resume always uses the captured upstream session UUID. With the
-    // pre-assignment refactor every ccsm-launched session has one (via
-    // newSessionIdArgs flag or the codex seed trick), and adopted
-    // sessions inherit theirs from the disk scan.
-    const themeArgs = await codexThemeArgs(cli, req.body && req.body.theme);
-    const extraArgs = buildResumeArgs(cli, record);
-    const entry = spawnCliSession({
+    const launched = await spawnSessionRecord({
+      record,
       cli,
-      cwd: record.cwd,
-      sessionId: record.id,
-      meta: { title: record.title || record.workspace, workspace: record.workspace, cwd: record.cwd },
-      extraArgs: [...themeArgs, ...extraArgs],
-      theme: req.body && req.body.theme,
-      cols: req.body && req.body.cols,
-      rows: req.body && req.body.rows,
+      cfg,
+      body: req.body,
+      resume: true,
     });
-    await persistedSessions.markRunning(record.id, entry.meta.pid);
-    res.json({ launched: { id: record.id, pid: entry.meta.pid, cliId: cli.id } });
+    res.json({ launched });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1149,7 +1085,7 @@ app.post('/api/sessions/:id/resume', asyncH(async (req, res) => {
 // lever is a syntax theme whose markup.inserted/deleted scopes carry light
 // backgrounds (they override the diff palette at true-color level). We ship
 // that theme (ccsm-light.tmTheme), copy it into the codex home, and point
-// tui.theme at it. Returns the args to prepend (before `resume <id>` so the
+// tui.theme at it. Returns the args to prepend (before any subcommand so the
 // global -c lands before the subcommand), or [] when not applicable. Skipped
 // in dark mode (codex's dark default is already correct on a dark terminal)
 // and when the user configured their own tui.theme in cli.args.
@@ -1167,21 +1103,6 @@ async function codexThemeArgs(cli, theme) {
     if (!(await ensureCodexLightTheme(home))) return [];
     return ['-c', 'tui.theme="ccsm-light"'];
   } catch { return []; }
-}
-
-// Build the args appended on resume: substitute the captured upstream
-// session UUID into cli.resumeIdArgs (e.g. ['--resume', '<id>'] →
-// ['--resume', '7c28...']). Throws if either piece is missing — by
-// design every ccsm session has a pre-assigned id, so missing one means
-// something upstream is misconfigured (adopt without id, user-added CLI
-// without resumeIdArgs, etc.) and we surface that instead of silently
-// re-launching without the id.
-function buildResumeArgs(cli, record) {
-  const id = record.cliSessionId;
-  const tpl = Array.isArray(cli.resumeIdArgs) ? cli.resumeIdArgs : [];
-  if (!id) throw new Error(`session ${record.id} has no cliSessionId — cannot resume`);
-  if (tpl.length === 0) throw new Error(`CLI ${cli.id} has no resumeIdArgs configured`);
-  return tpl.map((a) => (typeof a === 'string' ? a.replace(/<id>/g, id) : a));
 }
 
 // ---- capabilities probe ----
@@ -1761,9 +1682,11 @@ function openInBrowser(url) {
   const { server, port } = await listenWithFallback(preferredPort);
   currentPort = port;
 
-  // On boot, mark any persisted "running" sessions as exited — they
-  // belong to a previous server process whose PTYs are gone.
+  // On boot, normalize legacy records and mark any persisted "running"
+  // sessions as exited — they belong to a previous server process whose
+  // PTYs are gone.
   try {
+    await persistedSessions.normalizeStore();
     const all = await persistedSessions.loadAll();
     for (const s of all) {
       if (s.status === 'running') {
@@ -1774,11 +1697,6 @@ function openInBrowser(url) {
     console.error('[ccsm] could not reconcile persisted sessions:', e.message);
   }
 
-  // Prewarm `tasklist` cache used by the import modal's "live" markers —
-  // it takes ~500ms on Windows and is the single biggest contributor to
-  // a slow Import dialog cold-open. Fire in the background; the lib also
-  // starts its own 15s refresh loop.
-  try { localCliSessions.prewarmLivePids(['claude.exe']); } catch {}
   // Prewarm tunnel provider probe. First /api/tunnel/status round-trip
   // shells out to where.exe / --version / devtunnel user show — ~700ms
   // of synchronous work that the user otherwise waits on the moment

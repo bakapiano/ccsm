@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.22.8
+
+### Changed
+- Resume sessions by filesystem folder (`cwd`) instead of persisted upstream CLI session ids.
+- Add latest/picker resume behavior for Claude, Codex, Copilot, and custom CLIs.
+- Keep workspaces reserved by all persisted sessions until their session records are deleted.
+
+### Removed
+- Remove upstream session-id persistence, Codex seed-session startup, and import/adopt flows.
+
 ## 0.22.4
 
 ### Fixes
@@ -10,7 +20,7 @@
 ## 0.22.1
 
 ### Features
-- Allow an existing session to switch to another configured CLI with the same `type`, such as `claude` to `ccp`, while preserving the captured upstream session id for the next resume.
+- Allow an existing session to switch to another configured CLI while preserving cwd-based resume behavior for the next launch.
 - Add explicit Stop and Resume controls for the active session. Sessions stopped this way stay stopped until the user presses Resume.
 
 ### Fixes

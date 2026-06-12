@@ -29,9 +29,9 @@ export function EntityFormModal({
   // A field is read-only if its key is in the static `readOnlyKeys`
   // prop OR its own `readOnly` predicate (called with the current
   // draft) returns true. The predicate lets a field react to other
-  // fields' values — e.g. lock newSessionIdArgs once a known `type`
+  // fields' values — e.g. lock known CLI resume args once a `type`
   // is picked, since those args are an integration contract with the
-  // upstream CLI, not a user knob.
+  // upstream CLI, not a regular launch arg.
   const isReadOnly = (field) => {
     if (readOnlyKeys.includes(field.key)) return true;
     if (typeof field.readOnly === 'function') {

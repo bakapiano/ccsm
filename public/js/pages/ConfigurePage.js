@@ -27,7 +27,7 @@ import { useDragSort } from '../components/useDragSort.js';
 import { IconPlus, IconPencil, IconClose, IconTerminal, IconFolder, IconBranch, IconRefresh, IconChevronUp, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor, IconSun, IconMoon, IconMonitor } from '../icons.js';
 import { parseArgs, formatArgs } from '../util.js';
 
-// Tokenize the three free-form args fields into string[] before they hit
+// Tokenize the free-form args fields into string[] before they hit
 // the backend. Form values arrive as strings (text inputs) — backend
 // stores arrays. parseArgs handles shell-style quoting so users can type
 // `-Model "claude-opus-4-8"` or `-Path 'C:\some dir\bin'` and get sane
@@ -37,18 +37,18 @@ function tokenizeCliArgs(v) {
   return {
     ...v,
     args:             tok(v.args),
-    resumeIdArgs:     tok(v.resumeIdArgs),
-    newSessionIdArgs: tok(v.newSessionIdArgs),
+    resumeLatestArgs: tok(v.resumeLatestArgs),
+    resumePickerArgs: tok(v.resumePickerArgs),
   };
 }
 
-// Type → smart defaults. Choosing a type in the form auto-fills resumeArgs
+// Type → smart defaults. Choosing a type in the form auto-fills resume args
 // (and command if blank) so users don't need to remember the per-CLI flag.
 const CLI_TYPE_DEFAULTS = {
-  claude:  { command: 'claude',  resumeIdArgs: '--resume <id>', newSessionIdArgs: '--session-id <id>' },
-  codex:   { command: 'codex',   resumeIdArgs: 'resume <id>',   newSessionIdArgs: 'resume <id>' },
-  copilot: { command: 'copilot', resumeIdArgs: '--session-id <id>', newSessionIdArgs: '--session-id <id>' },
-  other:   { resumeIdArgs: '', newSessionIdArgs: '' },
+  claude:  { command: 'claude',  resumeLatestArgs: '--continue',    resumePickerArgs: '--resume' },
+  codex:   { command: 'codex',   resumeLatestArgs: 'resume --last', resumePickerArgs: 'resume' },
+  copilot: { command: 'copilot', resumeLatestArgs: '--continue',    resumePickerArgs: '--resume' },
+  other:   { resumeLatestArgs: '', resumePickerArgs: '' },
 };
 
 function cliFieldsFor({ creating } = {}) {
@@ -60,8 +60,8 @@ function cliFieldsFor({ creating } = {}) {
       { value: 'other',   label: 'Other',          icon: html`<${IconTerminal} />` },
     ],
       // Type-change side effects. For known types we force the
-      // integration args (newSessionIdArgs / resumeIdArgs) to the
-      // canonical template — those fields are locked anyway so
+      // folder-level resume args to the canonical template — those
+      // fields are locked anyway so
       // there's no value in leaving stale strings around. For
       // type='other' we leave existing args alone so the user can
       // keep editing them. Name + command are only prefilled when
@@ -71,8 +71,8 @@ function cliFieldsFor({ creating } = {}) {
         if (!d) return null;
         const patch = {};
         if (v !== 'other') {
-          patch.resumeIdArgs = d.resumeIdArgs;
-          patch.newSessionIdArgs = d.newSessionIdArgs;
+          patch.resumeLatestArgs = d.resumeLatestArgs;
+          patch.resumePickerArgs = d.resumePickerArgs;
         }
         if (creating) {
           if (!next.command || !next.command.trim()) patch.command = d.command || '';
@@ -90,20 +90,16 @@ function cliFieldsFor({ creating } = {}) {
     { key: 'command', label: 'Command', mono: true, placeholder: 'claude / codex / ...', required: true },
     { key: 'args', label: 'Args', mono: true, placeholder: '',
       hint: 'Used on every launch. Shell-style quoting: -Model "claude-opus-4-8" or -Path \'C:\\some dir\\bin\'.' },
-    { key: 'newSessionIdArgs', label: 'New session id args', mono: true, placeholder: '--session-id <id>',
-      // Lock for known types — those args are an integration contract
-      // with the upstream CLI, not a user knob. Only Type=Other allows
-      // a custom value (for hand-rolled CLIs ccsm doesn't ship a
-      // template for).
+    { key: 'resumeLatestArgs', label: 'Resume latest args', mono: true, placeholder: '--continue',
       readOnly: (d) => d.type && d.type !== 'other',
       hint: (d) => d.type && d.type !== 'other'
         ? `Locked to the canonical flags for ${d.type}. Change Type to "Other" to override.`
-        : 'ccsm pre-generates a UUID and substitutes it for <id> on first launch — the upstream CLI session id is known immediately.' },
-    { key: 'resumeIdArgs', label: 'Resume by id args', mono: true, placeholder: '--resume <id>',
+        : 'Used when Resume behavior is set to latest.' },
+    { key: 'resumePickerArgs', label: 'Resume picker args', mono: true, placeholder: '--resume',
       readOnly: (d) => d.type && d.type !== 'other',
       hint: (d) => d.type && d.type !== 'other'
         ? `Locked to the canonical flags for ${d.type}. Change Type to "Other" to override.`
-        : 'Used on every resume. Substitutes <id> with the captured session UUID.' },
+        : 'Used when Resume behavior is set to picker.' },
     { key: 'shell', label: 'Shell', type: 'select', default: 'direct', options: [
       { value: 'direct', label: 'direct (real .exe / .cmd)' },
       { value: 'pwsh',   label: 'pwsh (PowerShell aliases & functions)' },
@@ -157,7 +153,7 @@ export function ConfigurePage() {
       setGeneral({
         workDir: cfg.workDir,
         editor: cfg.editor,
-        reserveWorkspacesForStoppedSessions: !!cfg.reserveWorkspacesForStoppedSessions,
+        resumeMode: cfg.resumeMode === 'picker' ? 'picker' : 'latest',
       });
     }
   }, [cfg]);
@@ -172,7 +168,7 @@ export function ConfigurePage() {
         ...cfg,
         workDir: (merged.workDir || '').trim(),
         editor: (merged.editor || '').trim(),
-        reserveWorkspacesForStoppedSessions: !!merged.reserveWorkspacesForStoppedSessions,
+        resumeMode: merged.resumeMode === 'picker' ? 'picker' : 'latest',
       });
       config.value = saved;
       setToast('saved');
@@ -204,6 +200,21 @@ export function ConfigurePage() {
           <span class="label">Backend</span>
           <${RestartButton} />
         </div>
+        <div class="field">
+          <span class="label">Resume behavior</span>
+          <div class="seg" role="group" aria-label="Resume behavior">
+            ${[
+              { id: 'latest', label: 'Resume latest' },
+              { id: 'picker', label: 'Resume picker' },
+            ].map((o) => html`
+              <button key=${o.id} type="button"
+                      class=${`seg-btn${general.resumeMode === o.id ? ' is-active' : ''}`}
+                      aria-pressed=${general.resumeMode === o.id}
+                      onClick=${() => saveGeneral({ resumeMode: o.id })}>
+                <span>${o.label}</span>
+              </button>`)}
+          </div>
+        </div>
         <label class="field">
           <span class="label">Editor</span>
           <input type="text" class="mono" value=${general.editor || ''}
@@ -214,7 +225,7 @@ export function ConfigurePage() {
       </div>
     </${Section}>
 
-    <${Section} title="CLIs" meta=${html`Built-in entries (<code>claude</code>, <code>codex</code>) auto-probe your PATH.`}>
+    <${Section} title="CLIs" meta=${html`Built-in entries (<code>claude</code>, <code>codex</code>, <code>copilot</code>) auto-probe your PATH.`}>
       <${EntityList}
         kind="cli"
         addLabel="Add CLI"
@@ -308,14 +319,6 @@ export function ConfigurePage() {
           <input type="text" value=${general.workDir}
                  onChange=${(e) => saveGeneral({ workDir: e.target.value })} />
         </label>
-        <label class="field toggle">
-          <input type="checkbox" checked=${!!general.reserveWorkspacesForStoppedSessions}
-                 onChange=${(e) => saveGeneral({ reserveWorkspacesForStoppedSessions: e.target.checked })} />
-          <span class="toggle-text">
-            <span class="label">Reserve stopped sessions</span>
-            <span class="hint">Stopped sessions keep their workspace marked in use until the session is deleted.</span>
-          </span>
-        </label>
       </div>
       <${WorkspaceList} />
     </${Section}>
@@ -342,8 +345,8 @@ export function ConfigurePage() {
         initial=${{
           ...edit.payload,
           args: formatArgs(edit.payload.args),
-          resumeIdArgs: formatArgs(edit.payload.resumeIdArgs),
-          newSessionIdArgs: formatArgs(edit.payload.newSessionIdArgs),
+          resumeLatestArgs: formatArgs(edit.payload.resumeLatestArgs),
+          resumePickerArgs: formatArgs(edit.payload.resumePickerArgs),
         }}
         onClose=${close}
         onTest=${(v) => testCli({ command: v.command, shell: v.shell, type: v.type })}
@@ -434,8 +437,7 @@ function EntityList({ items, onAdd, onEdit, onDelete, onActivate, emptyHint, dnd
 // ── Workspace list ───────────────────────────────────────────────────
 function WorkspaceList() {
   const ws = workspaces.value || [];
-  const reserveStopped = !!config.value?.reserveWorkspacesForStoppedSessions;
-  const inUseBy = reserveStopped ? 'session' : 'running session';
+  const inUseBy = 'session';
   if (ws.length === 0) {
     return html`<div class="entity-empty">No workspaces yet — they're created automatically on launch.</div>`;
   }

@@ -100,6 +100,8 @@ export async function updateCli(id, patch) {
     clis: (cfg.clis || []).map((c) => c.id === id ? {
       ...c, ...patch,
       args: toArr(patch.args, c.args),
+      resumeLatestArgs: toArr(patch.resumeLatestArgs, c.resumeLatestArgs),
+      resumePickerArgs: toArr(patch.resumePickerArgs, c.resumePickerArgs),
       shell: ['direct', 'pwsh', 'cmd'].includes(patch.shell ?? c.shell) ? (patch.shell ?? c.shell) : 'direct',
     } : c),
   };
@@ -158,7 +160,7 @@ export async function setDefaultCli(id) {
 
 // Add a new CLI to config.clis and return its id. Generates a fresh id
 // from the command name + an integer suffix when collisions exist.
-export async function createCli({ name, command, args, shell, type }) {
+export async function createCli({ name, command, args, resumeLatestArgs, resumePickerArgs, shell, type }) {
   const cfg = S.config.value || (await api('GET', '/api/config'));
   const base = (name || command || 'cli').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cli';
   let id = base, n = 1;
@@ -171,6 +173,8 @@ export async function createCli({ name, command, args, shell, type }) {
       name: (name || command || id).trim(),
       command: (command || '').trim(),
       args: toArr(args),
+      resumeLatestArgs: toArr(resumeLatestArgs),
+      resumePickerArgs: toArr(resumePickerArgs),
       shell: ['direct', 'pwsh', 'cmd'].includes(shell) ? shell : 'direct',
       type: ['claude', 'codex', 'copilot', 'other'].includes(type) ? type : 'other',
     }],
@@ -338,32 +342,6 @@ export async function refreshAll() {
     loadWorkspaces(),
   ]);
   S.lastRefreshAt.value = Date.now();
-}
-
-// List existing CLI sessions discovered on disk for a given cli type.
-// Paginated: page 0 returns all currently-active sessions + the first
-// `limit` non-active (sorted mtime desc). Subsequent pages return the
-// next slice of non-active sessions.
-// Returns { sessions, totalActive, totalNonActive, total, offset, limit, hasMore }.
-export async function listLocalCliSessions(cliType, { offset = 0, limit = 30 } = {}) {
-  const qs = `offset=${offset}&limit=${limit}`;
-  const r = await api('GET', `/api/cli-sessions/${cliType}?${qs}`);
-  return {
-    sessions: r.sessions || [],
-    totalActive: r.totalActive ?? 0,
-    totalNonActive: r.totalNonActive ?? 0,
-    total: r.total ?? (r.sessions?.length || 0),
-    offset: r.offset ?? offset,
-    limit: r.limit ?? limit,
-    hasMore: !!r.hasMore,
-  };
-}
-
-// Adopt an existing upstream CLI session into ccsm. Returns the created
-// (or existing) persistedSessions record.
-export async function adoptSession({ cliId, cliSessionId, cwd, title, folderId }) {
-  const r = await api('POST', '/api/sessions/adopt', { cliId, cliSessionId, cwd, title, folderId });
-  return r;
 }
 
 export async function restartBackend() {

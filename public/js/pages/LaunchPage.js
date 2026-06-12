@@ -14,8 +14,7 @@ import { ProgressList } from '../components/ProgressList.js';
 import { Modal } from '../components/Modal.js';
 import { PickerPanel } from '../components/Picker.js';
 import { DirectoryPicker } from '../components/DirectoryPicker.js';
-import { AdoptModal } from '../components/AdoptModal.js';
-import { BrandMark, IconTerminal, IconFolder, IconFolderOpen, IconBranch, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor, IconSparkle, IconWorkspace, IconArrowRight } from '../icons.js';
+import { BrandMark, IconTerminal, IconFolder, IconFolderOpen, IconBranch, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor, IconSparkle, IconWorkspace } from '../icons.js';
 
 const ROOT_ID = 'newSessionProgress';
 const selectedRepos = signal(new Set());
@@ -80,7 +79,6 @@ function LaunchHero() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [openPicker, setOpenPicker] = useState(null); // 'cli' | 'folder' | 'workdir' | null
-  const [adoptOpen, setAdoptOpen] = useState(false);
 
   // If config arrives after first render (cliId === '') OR the saved
   // cli was removed, snap to the current default.
@@ -186,13 +184,13 @@ function LaunchHero() {
       { value: 'other',   label: 'Other',          icon: html`<${IconTerminal} />` },
     ],
       onChange: (v, next) => {
-        const presets = { claude:  { command: 'claude',  resumeArgs: '--continue',    resumeIdArgs: '--resume <id>', name: 'Claude Code' },
-                          codex:   { command: 'codex',   resumeArgs: 'resume --last', resumeIdArgs: 'resume <id>',   name: 'OpenAI Codex' },
-                          copilot: { command: 'copilot', resumeArgs: '--continue',    resumeIdArgs: '--session-id <id>', name: 'GitHub Copilot' },
+        const presets = { claude:  { command: 'claude',  resumeLatestArgs: '--continue',    resumePickerArgs: '--resume', name: 'Claude Code' },
+                          codex:   { command: 'codex',   resumeLatestArgs: 'resume --last', resumePickerArgs: 'resume',   name: 'OpenAI Codex' },
+                          copilot: { command: 'copilot', resumeLatestArgs: '--continue',    resumePickerArgs: '--resume', name: 'GitHub Copilot' },
                           other:   {} }[v] || {};
         const patch = {};
-        if (presets.resumeArgs != null) patch.resumeArgs = presets.resumeArgs;
-        if (presets.resumeIdArgs != null) patch.resumeIdArgs = presets.resumeIdArgs;
+        if (presets.resumeLatestArgs != null) patch.resumeLatestArgs = presets.resumeLatestArgs;
+        if (presets.resumePickerArgs != null) patch.resumePickerArgs = presets.resumePickerArgs;
         if (!next.command || !next.command.trim()) patch.command = presets.command || '';
         if (!next.name || !next.name.trim()) patch.name = presets.name || '';
         return patch;
@@ -201,10 +199,8 @@ function LaunchHero() {
     { key: 'name', label: 'Name', placeholder: 'My CLI', required: true },
     { key: 'command', label: 'Command', mono: true, placeholder: 'claude / codex / ...', required: true },
     { key: 'args', label: 'Args (space-separated)', mono: true, placeholder: '' },
-    { key: 'resumeArgs', label: 'Resume args (fallback)', mono: true, placeholder: '--continue',
-      hint: 'Used when ccsm has no captured upstream session id.' },
-    { key: 'resumeIdArgs', label: 'Resume by id args', mono: true, placeholder: '--resume <id>',
-      hint: 'Use <id> as the placeholder for the captured upstream session UUID.' },
+    { key: 'resumeLatestArgs', label: 'Resume latest args', mono: true, placeholder: '--continue' },
+    { key: 'resumePickerArgs', label: 'Resume picker args', mono: true, placeholder: '--resume' },
     { key: 'shell', label: 'Shell', type: 'select', default: 'direct', options: [
       { value: 'direct', label: 'direct (real .exe / .cmd)' },
       { value: 'pwsh', label: 'pwsh (PowerShell aliases & functions)' },
@@ -375,20 +371,6 @@ function LaunchHero() {
           </svg>
         </span>`}
       </button>
-
-      <button type="button" class="launch-import-link"
-              onClick=${() => setAdoptOpen(true)}>
-        or import existing<span class="launch-import-arrow" aria-hidden="true"><${IconArrowRight} /></span>
-      </button>
-
-      ${adoptOpen ? html`
-        <${AdoptModal} onClose=${() => setAdoptOpen(false)}
-                       onAdopted=${async (id) => {
-                         setAdoptOpen(false);
-                         await refreshAll();
-                         if (id) selectSession(id);
-                         selectTab('sessions');
-                       }} />` : null}
 
       <${ProgressList} rootId=${ROOT_ID} />
       ${result ? html`<div class="launch-status mono">${result}</div>` : null}
