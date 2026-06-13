@@ -3,7 +3,7 @@
 
 import { signal } from '@preact/signals';
 import * as S from './state.js';
-import { httpBase, getToken, getDeviceId, getDeviceCode, isRemoteAccess, estimateTermSize } from './backend.js';
+import { httpBase, apiAuthHeaders, isRemoteAccess, estimateTermSize } from './backend.js';
 
 // Global pending-approval signal. Flipped to true whenever any /api
 // call returns 403 {pending:true}; PendingApprovalOverlay watches this
@@ -11,27 +11,35 @@ import { httpBase, getToken, getDeviceId, getDeviceCode, isRemoteAccess, estimat
 // the overlay can display "we recorded you at HH:MM" detail.
 export const pendingDevice = signal(null);
 
+export function surfaceRemoteGateFailure(status, json = {}) {
+  if (!isRemoteAccess()) return;
+  if (status === 403 && json && (json.pending || json.rejected)) {
+    // Merge into the existing pendingDevice rather than overwriting
+    // so the "we recorded you at HH:MM" detail (only present on the
+    // initial /me hit, not subsequent gate 403s) survives. Without
+    // this merge, the first failing /api/sessions tick after the
+    // overlay mounts wipes the firstSeen timestamp and the copy
+    // reverts to a generic "The host machine got your request".
+    const prev = pendingDevice.value || {};
+    pendingDevice.value = { ...prev, ...json, at: Date.now() };
+  } else if (status === 401) {
+    // Server doesn't recognise our device — either fresh page load
+    // (no /api/devices/me hit yet) or our record got pruned (24h
+    // pending TTL) AND our token no longer matches the host's
+    // current one. PendingApprovalOverlay's /me poll will try to
+    // re-register; on token mismatch /me itself 401s and the
+    // overlay flips into "token expired" state. We just nudge the
+    // overlay alive here.
+    const prev = pendingDevice.value || {};
+    pendingDevice.value = { ...prev, pending: true, at: Date.now() };
+  }
+}
+
 export async function api(method, url, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  // When a remote token is configured (Remote page set it OR the page
-  // was loaded with ?token= and we stashed it in localStorage), attach
-  // it to every API call. The server middleware lets loopback Hosts
-  // through without the token; for tunnel-served pages this is the
-  // only way past the 401.
-  const tok = getToken();
-  if (tok) opts.headers['Authorization'] = `Bearer ${tok}`;
-  // Always send our device id when one exists in localStorage. The host
-  // browser at localhost doesn't strictly need it (loopback bypass),
-  // but harmless — the server simply records lastSeen for it. Required
-  // for any tunnel-served page to clear the device-approval gate.
-  const dev = getDeviceId();
-  if (dev) opts.headers['X-Device-Id'] = dev;
-  // 4-digit identification code (see getDeviceCode in backend.js).
-  // Server stores it on first sight; the Remote page renders it
-  // alongside each pending device so the operator can confirm "yes,
-  // this is the request I just made on my phone" before approving.
-  const code = getDeviceCode();
-  if (code) opts.headers['X-Device-Code'] = code;
+  const opts = {
+    method,
+    headers: apiAuthHeaders({ 'Content-Type': 'application/json' }),
+  };
   if (body !== undefined) opts.body = JSON.stringify(body);
   const r = await fetch(httpBase() + url, opts);
   const text = await r.text();
@@ -41,28 +49,7 @@ export async function api(method, url, body) {
     // Surface device-approval pending state. Only matters on remote
     // tabs — host's loopback browser never gets a 401/403 from these
     // checks.
-    if (isRemoteAccess()) {
-      if (r.status === 403 && json && (json.pending || json.rejected)) {
-        // Merge into the existing pendingDevice rather than overwriting
-        // so the "we recorded you at HH:MM" detail (only present on the
-        // initial /me hit, not subsequent gate 403s) survives. Without
-        // this merge, the first failing /api/sessions tick after the
-        // overlay mounts wipes the firstSeen timestamp and the copy
-        // reverts to a generic "The host machine got your request".
-        const prev = pendingDevice.value || {};
-        pendingDevice.value = { ...prev, ...json, at: Date.now() };
-      } else if (r.status === 401) {
-        // Server doesn't recognise our device — either fresh page load
-        // (no /api/devices/me hit yet) or our record got pruned (24h
-        // pending TTL) AND our token no longer matches the host's
-        // current one. PendingApprovalOverlay's /me poll will try to
-        // re-register; on token mismatch /me itself 401s and the
-        // overlay flips into "token expired" state. We just nudge the
-        // overlay alive here.
-        const prev = pendingDevice.value || {};
-        pendingDevice.value = { ...prev, pending: true, at: Date.now() };
-      }
-    }
+    surfaceRemoteGateFailure(r.status, json);
     throw new Error(json.error || `HTTP ${r.status}`);
   }
   // PendingApprovalOverlay clears pendingDevice itself based on the

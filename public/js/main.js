@@ -6,7 +6,7 @@ import { render } from 'preact';
 import { effect } from '@preact/signals';
 import { html } from './html.js';
 import { loadPersisted, clockTick, lastRefreshAt, installPrompt, isInstalledPwa, sidebarForcedCollapsed, isMobile, mobileDrawerOpen, activeTab, activeSessionId, sessions, TAB_HEADINGS } from './state.js';
-import { httpBase, setToken, getDeviceId, isRemoteAccess } from './backend.js';
+import { httpBase, apiAuthHeaders, setToken, getDeviceId, isRemoteAccess } from './backend.js';
 import { api, loadConfig, refreshAll, loadSessions, loadFolders, loadWorkspaces, pollHealth, pendingDevice } from './api.js';
 import { setToast } from './toast.js';
 import { App } from './components/App.js';
@@ -254,14 +254,10 @@ window.addEventListener('resize', syncViewportHeight);
     // gated on real user activity anyway. Resumes automatically once
     // pendingDevice clears.
     if (pendingDevice.value) return Promise.resolve();
-    const headers = {};
     // Heartbeat doesn't go through api.js' wrapper but still needs the
     // bearer token + device id when called via tunnel (the middleware
     // blocks it otherwise and the server thinks the session went idle).
-    const t = (typeof localStorage !== 'undefined') ? localStorage.getItem('ccsm.token') : null;
-    if (t) headers['Authorization'] = `Bearer ${t}`;
-    const d = getDeviceId();
-    if (d) headers['X-Device-Id'] = d;
+    const headers = apiAuthHeaders();
     return fetch(httpBase() + '/api/heartbeat', { method: 'POST', headers, keepalive: true }).catch(() => {});
   };
   ping();
