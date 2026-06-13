@@ -2,7 +2,8 @@
 // Items live in a signal keyed by repo so progress rows are reactive.
 
 import { signal } from '@preact/signals';
-import { httpBase, estimateTermSize } from './backend.js';
+import { httpBase, apiAuthHeaders, estimateTermSize } from './backend.js';
+import { surfaceRemoteGateFailure } from './api.js';
 
 // progressByContext[rootId] = { repoName: { phase, percent, detail, state, indeterminate, name } }
 export const progressByContext = signal({});
@@ -68,12 +69,15 @@ export async function streamNewSession(body, { progressRootId = 'newSessionProgr
   // at node-pty's 30-row default and get stranded short of a tall window.
   const res = await fetch(httpBase() + '/api/sessions/new', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ ...body, theme, ...(estimateTermSize() || {}) }),
   });
-  if (!res.ok && res.headers.get('content-type')?.startsWith('application/json')) {
-    const j = await res.json();
-    throw new Error(j.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text();
+    let json;
+    try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+    surfaceRemoteGateFailure(res.status, json);
+    throw new Error(json.error || `HTTP ${res.status}`);
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

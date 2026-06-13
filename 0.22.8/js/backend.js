@@ -147,3 +147,14 @@ export function getDeviceCode() {
     return null;
   }
 }
+
+export function apiAuthHeaders(base = {}) {
+  const headers = { ...base };
+  const tok = getToken();
+  if (tok) headers['Authorization'] = `Bearer ${tok}`;
+  const dev = getDeviceId();
+  if (dev) headers['X-Device-Id'] = dev;
+  const code = getDeviceCode();
+  if (code) headers['X-Device-Code'] = code;
+  return headers;
+}
