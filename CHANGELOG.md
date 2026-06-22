@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.9
+
+### Fixes
+- Persist the open session tab strip and active session selection so switching away from Sessions or reloading the app no longer drops still-running session tabs.
+- Clear persisted session tab state when a session is deleted, avoiding stale restored tabs.
+
 ## 0.22.8
 
 ### Changed

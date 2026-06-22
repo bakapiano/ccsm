@@ -27,6 +27,7 @@ export const restartInFlight = signal(null);   // { startedAt, prevPid } | null
 // ── ui state (persisted in localStorage where noted) ───────────
 export const activeTab        = signal('sessions');
 export const activeSessionId  = signal(null);    // the session currently rendered in the right pane
+export const openSessionTabIds = signal([]);      // session tabs currently open in the Sessions pane
 export const sidebarCollapsed = signal(false);
 // True when viewport is narrow enough that the sidebar is force-collapsed
 // by the responsive layout — the toggle button hides in that case so the
@@ -108,6 +109,8 @@ const LS_SIDEBAR_W = 'ccsm.sidebar-width';
 const LS_ACCENT = 'ccsm.accent';
 const LS_THEME = 'ccsm.theme';
 const LS_FOLDERS_COLLAPSED = 'ccsm.folders-collapsed';
+const LS_ACTIVE_SESSION = 'ccsm.active-session-id';
+const LS_OPEN_SESSION_TABS = 'ccsm.open-session-tabs';
 // Last-known sidebar tree, rehydrated on boot to keep the first paint
 // stable. The next refreshAll() overwrites these from the server, so
 // stale entries self-heal within ~5s without any explicit invalidation.
@@ -118,6 +121,26 @@ export const SIDEBAR_MIN = 180;
 export const SIDEBAR_MAX = 400;
 export const SIDEBAR_DEFAULT = 232;
 export const ACCENT_DEFAULT = '#2f6fa3';
+
+function uniqueStringList(items) {
+  const out = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (typeof item !== 'string' || !item) continue;
+    if (!out.includes(item)) out.push(item);
+  }
+  return out;
+}
+
+function persistActiveSession(id) {
+  try {
+    if (id) localStorage.setItem(LS_ACTIVE_SESSION, id);
+    else localStorage.removeItem(LS_ACTIVE_SESSION);
+  } catch {}
+}
+
+function persistOpenSessionTabs(ids) {
+  try { localStorage.setItem(LS_OPEN_SESSION_TABS, JSON.stringify(ids)); } catch {}
+}
 
 export function loadPersisted() {
   sidebarCollapsed.value = localStorage.getItem(LS_SIDEBAR) === 'true';
@@ -154,6 +177,18 @@ export function loadPersisted() {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) sessions.value = parsed;
     }
+  } catch {}
+  try {
+    const raw = localStorage.getItem(LS_OPEN_SESSION_TABS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      openSessionTabIds.value = uniqueStringList(parsed);
+    }
+  } catch {}
+  try {
+    const remembered = localStorage.getItem(LS_ACTIVE_SESSION);
+    if (remembered) activeSessionId.value = remembered;
+    else if (openSessionTabIds.value.length) activeSessionId.value = openSessionTabIds.value[0];
   } catch {}
   const hash = location.hash.slice(1);
   if (TAB_HEADINGS[hash]) activeTab.value = hash;
@@ -308,8 +343,35 @@ export function selectTab(name) {
   if (mobileDrawerOpen.value) mobileDrawerOpen.value = false;
 }
 
+export function setOpenSessionTabs(ids) {
+  const next = uniqueStringList(ids);
+  openSessionTabIds.value = next;
+  persistOpenSessionTabs(next);
+}
+
+export function ensureOpenSessionTab(id) {
+  if (typeof id !== 'string' || !id) return;
+  const current = openSessionTabIds.value;
+  if (current.includes(id)) return;
+  setOpenSessionTabs([...current, id]);
+}
+
+export function closeOpenSessionTab(id) {
+  if (typeof id !== 'string' || !id) return;
+  const current = openSessionTabIds.value;
+  if (!current.includes(id)) return;
+  setOpenSessionTabs(current.filter((sid) => sid !== id));
+}
+
+export function clearActiveSession() {
+  activeSessionId.value = null;
+  persistActiveSession(null);
+}
+
 export function selectSession(id) {
+  ensureOpenSessionTab(id);
   activeSessionId.value = id;
+  persistActiveSession(id);
   activeTab.value = 'sessions';
   if (location.hash !== '#sessions') window.history.replaceState(null, '', '#sessions');
   if (mobileDrawerOpen.value) mobileDrawerOpen.value = false;

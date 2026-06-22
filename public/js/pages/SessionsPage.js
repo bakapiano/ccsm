@@ -6,7 +6,18 @@
 
 import { html } from '../html.js';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { activeSessionId, sessions, config, selectTab, selectSession, clockTick } from '../state.js';
+import {
+  activeSessionId,
+  openSessionTabIds,
+  sessions,
+  config,
+  selectTab,
+  selectSession,
+  setOpenSessionTabs,
+  closeOpenSessionTab,
+  clearActiveSession,
+  clockTick,
+} from '../state.js';
 import { resumeSession, clearResumeFailure, deleteSession, setSessionTitle, switchSessionCli, stopSession, openSessionInEditor } from '../api.js';
 import { setToast } from '../toast.js';
 import { ccsmConfirm, ccsmPrompt } from '../dialog.js';
@@ -148,7 +159,7 @@ export function SessionsPage() {
   const session = id ? list.find((s) => s.id === id) : null;
   const [resumeError, setResumeError] = useState(null);
   const [actionBusy, setActionBusy] = useState(false);
-  const [openTerminalIds, setOpenTerminalIds] = useState(() => new Set());
+  const openTerminalIds = openSessionTabIds.value;
   // Bumps to force the auto-resume effect to re-run on Retry without
   // mutating any signal. Primitive in the dep array → identity changes.
   const [retryNonce, setRetryNonce] = useState(0);
@@ -157,7 +168,10 @@ export function SessionsPage() {
   // we don't mutate signals during render. Returning null while the bounce
   // is in flight avoids a flash of empty content.
   useEffect(() => {
-    if (!session) selectTab('launch');
+    if (!session) {
+      clearActiveSession();
+      selectTab('launch');
+    }
   }, [session]);
 
   // Auto-resume when the active session is exited. resumeSession() in
@@ -175,23 +189,19 @@ export function SessionsPage() {
 
   useEffect(() => {
     const existingIds = new Set(list.map((s) => s.id));
-    setOpenTerminalIds((prev) => {
-      const next = new Set();
-      let changed = false;
-      for (const sid of prev) {
-        if (existingIds.has(sid)) {
-          next.add(sid);
-        } else {
-          changed = true;
-        }
+    const next = [];
+    for (const sid of openTerminalIds) {
+      if (existingIds.has(sid) && !next.includes(sid)) {
+        next.push(sid);
       }
-      if (session?.id && existingIds.has(session.id) && !next.has(session.id)) {
-        next.add(session.id);
-        changed = true;
-      }
-      return changed || next.size !== prev.size ? next : prev;
-    });
-  }, [list, session?.id]);
+    }
+    if (session?.id && existingIds.has(session.id) && !next.includes(session.id)) {
+      next.push(session.id);
+    }
+    const same = next.length === openTerminalIds.length
+      && next.every((sid, i) => sid === openTerminalIds[i]);
+    if (!same) setOpenSessionTabs(next);
+  }, [list, session?.id, openTerminalIds]);
 
   if (!session) return null;
 
@@ -201,7 +211,7 @@ export function SessionsPage() {
     ? (config.value?.clis || []).filter((c) => c.id !== cli.id)
     : [];
   const running = session.status === 'running';
-  const openSessions = Array.from(openTerminalIds)
+  const openSessions = openTerminalIds
     .map((sid) => list.find((s) => s.id === sid))
     .filter(Boolean);
   const tabSessions = session && !openSessions.some((s) => s.id === session.id)
@@ -211,12 +221,7 @@ export function SessionsPage() {
   const title = session.title || session.workspace || session.id.slice(0, 12);
 
   const onCloseTab = (sid) => {
-    setOpenTerminalIds((prev) => {
-      if (!prev.has(sid)) return prev;
-      const next = new Set(prev);
-      next.delete(sid);
-      return next;
-    });
+    closeOpenSessionTab(sid);
 
     if (sid !== session.id) return;
     const currentIndex = tabSessions.findIndex((s) => s.id === sid);
@@ -227,23 +232,21 @@ export function SessionsPage() {
     if (replacement) {
       selectSession(replacement.id);
     } else {
-      activeSessionId.value = null;
+      clearActiveSession();
       selectTab('launch');
     }
   };
 
   const onReorderTabs = (orderedIds) => {
     const existingIds = new Set(list.map((s) => s.id));
-    setOpenTerminalIds((prev) => {
-      const nextIds = [];
-      for (const sid of orderedIds) {
-        if (existingIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
-      }
-      for (const sid of prev) {
-        if (existingIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
-      }
-      return new Set(nextIds);
-    });
+    const nextIds = [];
+    for (const sid of orderedIds) {
+      if (existingIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
+    }
+    for (const sid of openTerminalIds) {
+      if (existingIds.has(sid) && !nextIds.includes(sid)) nextIds.push(sid);
+    }
+    setOpenSessionTabs(nextIds);
   };
 
   const onResume = async () => {
@@ -287,7 +290,8 @@ export function SessionsPage() {
     if (!ok) return;
     try {
       await deleteSession(session.id);
-      activeSessionId.value = null;
+      closeOpenSessionTab(session.id);
+      clearActiveSession();
     } catch (e) { setToast(e.message, 'error'); }
   };
   const onOpenEditor = async () => {

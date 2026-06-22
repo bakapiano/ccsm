@@ -4,6 +4,7 @@ import {
   activeTab, sidebarCollapsed, sidebarForcedCollapsed, isMobile, configDirty, capabilities,
   sessions, folders, sessionsByFolder, foldersCollapsed, activeSessionId,
   selectTab, selectSession, toggleSidebar, toggleFolder, setSidebarWidth,
+  closeOpenSessionTab, clearActiveSession,
 } from '../state.js';
 import { createFolder, renameFolder, deleteFolder, reorderFolders, setSessionFolder, reorderSessions, deleteSession, resumeSession, setSessionTitle } from '../api.js';
 import { isRemoteAccess } from '../backend.js';
@@ -79,7 +80,8 @@ function SessionRow({ s, folderId, siblingIds }) {
     if (!ok) return;
     try {
       await deleteSession(s.id);
-      if (activeSessionId.value === s.id) activeSessionId.value = null;
+      closeOpenSessionTab(s.id);
+      if (activeSessionId.value === s.id) clearActiveSession();
     } catch (e) { setToast(e.message, 'error'); }
   };
 
