@@ -1,0 +1,160 @@
+// One source of truth for "where is the ccsm backend reachable"
+// and "what auth token (if any) do we attach to every request".
+//
+//   localhost / 127.0.0.1            same-origin (page IS the backend)
+//   bakapiano.github.io              http://localhost:7777 (the hosted
+//                                      frontend talks to the user's local
+//                                      backend via CORS)
+//   anything else (tunnel domain)    same-origin (the local backend is
+//                                      serving this frontend over the
+//                                      tunnel; API calls go to the same
+//                                      tunnel URL automatically)
+//
+// httpBase is used by fetch(); wsBase is used by WebSocket constructions.
+// Keep both as functions rather than constants so the values reflect
+// `location.*` at call time (matters for tests / route changes).
+
+const HOSTED_HOST = 'bakapiano.github.io';
+
+function isLocal() {
+  return location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+}
+function isHosted() {
+  return location.hostname === HOSTED_HOST;
+}
+
+export function httpBase() {
+  if (isHosted()) return 'http://localhost:7777';
+  // Local OR tunnel-served — both same-origin.
+  return '';
+}
+
+export function wsBase() {
+  if (isHosted()) return 'ws://localhost:7777';
+  return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
+}
+
+export function isHostedFrontend() {
+  return isHosted();
+}
+// True when the page is being served via a remote tunnel — neither the
+// host machine itself (localhost) nor the GH-Pages router. Used to gate
+// off "wake backend" affordances that only work locally.
+export function isRemoteAccess() {
+  return !isLocal() && !isHosted();
+}
+
+// ── Remote-access bearer token ────────────────────────────────────
+// Persisted in localStorage so it survives reloads on whatever device
+// loaded the share URL. main.js captures a fresh token from `?token=`
+// on first arrival and stashes it via setToken(), then strips the
+// query string from the URL so the secret doesn't sit in the address
+// bar / browser history.
+const LS_KEY = 'ccsm.token';
+
+export function getToken() {
+  try { return localStorage.getItem(LS_KEY) || null; } catch { return null; }
+}
+export function setToken(t) {
+  try {
+    if (t) localStorage.setItem(LS_KEY, t);
+    else localStorage.removeItem(LS_KEY);
+  } catch {}
+}
+
+// ── Device id ─────────────────────────────────────────────────────
+// Per-browser-profile UUID that identifies this device to the host
+// machine for the approval flow. Generated once, persisted in
+// localStorage, sent on every API call as X-Device-Id. The host pairs
+// the id with the User-Agent the server records on first sight, so
+// the approval UI can show "iPhone · Safari" instead of a raw uuid.
+const LS_DEVICE = 'ccsm.deviceId';
+
+export function getDeviceId() {
+  try {
+    let id = localStorage.getItem(LS_DEVICE);
+    if (!id) {
+      id = (crypto.randomUUID && crypto.randomUUID()) || (Math.random().toString(36).slice(2) + Date.now().toString(36));
+      localStorage.setItem(LS_DEVICE, id);
+    }
+    return id;
+  } catch {
+    return null;
+  }
+}
+
+// ── Initial terminal geometry ─────────────────────────────────────
+// Estimate how many cols/rows the live session pane can hold, so a
+// resumed / newly-launched PTY can spawn at roughly the right size
+// instead of node-pty's 120×30 default. Why it matters: an alt-screen
+// TUI like claude lays its entire UI out the instant it starts, using
+// whatever size the PTY had then. xterm only sends the real size once
+// its WebSocket opens — a beat later — and claude, having already
+// painted at 30 rows, doesn't re-expand to fill a tall window until
+// something forces a redraw (e.g. the user resizing it). On a big
+// display that strands the terminal at ~1/4 height. Seeding the spawn
+// with the pane's real dimensions sidesteps the race; xterm's own fit
+// still corrects any few-row estimate error when it attaches.
+// Returns null when nothing measurable is mounted, so the caller omits
+// the hint and the backend keeps its default.
+export function estimateTermSize() {
+  let w, h;
+  const pane = document.querySelector('.terminal-host')
+            || document.querySelector('.session-pane-body');
+  if (pane) {
+    const r = pane.getBoundingClientRect();
+    w = r.width; h = r.height;
+  } else {
+    // Launching from the Launch page — no pane yet. Approximate from the
+    // window minus the sidebar column and the ~70px of top chrome.
+    const sb = document.querySelector('.sidebar');
+    w = window.innerWidth - (sb ? sb.getBoundingClientRect().width : 232) - 32;
+    h = window.innerHeight - 70;
+  }
+  if (!(w > 40) || !(h > 40)) return null;
+  // Mirror TerminalView's font sizing (13px desktop / 11px mobile,
+  // lineHeight 1.2); cell advance ≈ 0.6em for the mono stack.
+  const isMobile = window.matchMedia('(max-width: 640px)').matches;
+  const fontSize = isMobile ? 11 : 13;
+  return {
+    cols: Math.max(20, Math.min(400, Math.floor(w / (fontSize * 0.6)))),
+    rows: Math.max(8, Math.min(200, Math.floor(h / (fontSize * 1.2)))),
+  };
+}
+
+// Per-device 4-digit human-verification code. Sent alongside the
+// device id so the operator approving on the host can match what
+// they see in the Remote page against what the requesting user
+// reads off their own screen — guards against approving the wrong
+// pending request when two devices arrive in quick succession.
+// Purely identification, NOT a credential — no secrecy assumed.
+const LS_DEVICE_CODE = 'ccsm.deviceCode';
+
+export function getDeviceCode() {
+  try {
+    let c = localStorage.getItem(LS_DEVICE_CODE);
+    if (!c || !/^\d{4}$/.test(c)) {
+      // 1000..9999 inclusive so the leading digit is never 0 — keeps
+      // the code visually consistent at 4 characters wherever it
+      // shows up. Random.value covers 9000 possibilities, plenty for
+      // a "which of these is yours" disambiguator.
+      const n = 1000 + Math.floor(Math.random() * 9000);
+      c = String(n);
+      localStorage.setItem(LS_DEVICE_CODE, c);
+    }
+    return c;
+  } catch {
+    return null;
+  }
+}
+
+export function apiAuthHeaders(base = {}) {
+  const headers = { ...base };
+  const tok = getToken();
+  if (tok) headers['Authorization'] = `Bearer ${tok}`;
+  const dev = getDeviceId();
+  if (dev) headers['X-Device-Id'] = dev;
+  const code = getDeviceCode();
+  if (code) headers['X-Device-Code'] = code;
+  return headers;
+}

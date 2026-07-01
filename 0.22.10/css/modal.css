@@ -1,0 +1,190 @@
+/* Floating action button · modal backdrop / shell / sections ·
+   nested repos-inline-config disclosure · ad-hoc confirm/prompt dialog */
+
+.fab {
+  position: fixed;
+  bottom: var(--s-6);
+  right: var(--s-6);
+  z-index: 90;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--bg-elev);
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 6px 16px -6px rgba(26, 24, 21, 0.25),
+    0 1px 0 rgba(26, 24, 21, 0.06);
+  transition: background .12s ease, transform .15s ease, box-shadow .15s ease;
+}
+.fab:hover {
+  background: #000;
+  transform: translateY(-1px);
+  box-shadow:
+    0 10px 22px -6px rgba(26, 24, 21, 0.26),
+    0 2px 0 rgba(26, 24, 21, 0.08);
+}
+.fab:active { transform: scale(0.96); }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  /* Opaque scrim only — no backdrop-filter. `backdrop-filter: blur()` on
+     top of a complex page (sidebar tree + xterm canvas + scrollable
+     lists) forced a re-composite of the entire viewport every frame
+     during the open animation; on this machine that pegged the GPU and
+     made the modal feel "stuck". A slightly more opaque scrim conveys
+     the same "page is suspended" signal at zero GPU cost. */
+  background: rgba(26, 24, 21, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-6);
+  animation: backdrop-in .12s ease-out;
+}
+@keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+
+.modal {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: min(560px, 100%);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Single shadow instead of three. The previous stack had an 80px-radius
+     drop-shadow that the GPU has to redraw on every transform tick during
+     modal-in — visually negligible difference, big perf win. */
+  box-shadow: 0 12px 32px -8px rgba(26, 24, 21, 0.28);
+  /* Pin a compositor layer + give the animated transform a stable rect so
+     the browser doesn't reflow on each frame. */
+  will-change: transform, opacity;
+  animation: modal-in .14s ease-out;
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.modal-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+
+/* Red close X · subtle by default, fills red on hover. Available on
+   <Modal> and on confirm/prompt dialogs via dialog.js. */
+.modal-close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #c44a4a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .12s ease, background .12s ease, transform .12s ease;
+}
+.modal-close:hover {
+  background: rgba(196, 74, 74, 0.10);
+  color: #b03737;
+}
+.modal-close:active { transform: scale(0.94); }
+.modal-close svg { display: block; }
+
+.modal-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal-hint {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-bottom: var(--s-4);
+}
+.modal-hint code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-soft);
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg);
+}
+
+/* Nested "Edit repos" disclosure inside the new-session modal */
+.repos-inline-config {
+  margin: var(--s-3) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+.repos-inline-config summary {
+  cursor: pointer;
+  padding: 8px var(--s-3);
+  font-size: 12.5px;
+  color: var(--ink-mid);
+  font-weight: 500;
+  user-select: none;
+}
+.repos-inline-config summary::marker { color: var(--ink-mid); }
+.repos-inline-config summary:hover { color: var(--ink); }
+.repos-inline-config[open] summary { border-bottom: 1px solid var(--border); }
+.repos-inline-body {
+  padding: var(--s-3);
+  background: var(--bg-elev);
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+}
+.repos-inline-actions {
+  display: flex;
+  gap: var(--s-3);
+  align-items: center;
+  margin-top: var(--s-3);
+}
+
+/* Narrower variant for confirm/prompt — keeps a head with the red close X */
+.modal-dialog { width: min(440px, 100%); }
+.modal-dialog .modal-body { padding: 14px 20px 16px; }
+.modal-dialog input[type="text"] {
+  width: 100%;
+  max-width: none;
+  margin-top: 8px;
+}
+
+/* Picker modals (CLI / Folder / Repos on launch page) — body is flush
+   so Picker.js controls inner padding. */
+.modal-picker .modal-body { padding: 0; }
+
+.dialog-msg {
+  font-size: 13.5px;
+  color: var(--ink-mid);
+  line-height: 1.55;
+}
