@@ -600,6 +600,29 @@ body.is-resizing-sidebar * {
   align-items: center;
   justify-content: center;
 }
+.tree-deleted-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-muted);
+  opacity: 0.8;
+}
+.tree-deleted-icon svg {
+  width: 13px;
+  height: 13px;
+}
+.tree-session-deleted {
+  color: var(--ink-mid);
+}
+.tree-session-deleted .tree-label {
+  color: var(--ink-mid);
+}
+.tree-session-deleted .tree-meta {
+  opacity: 0.48;
+}
 .tree-dot::after {
   content: "";
   width: 7px;

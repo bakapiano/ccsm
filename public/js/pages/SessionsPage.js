@@ -285,7 +285,7 @@ export function SessionsPage() {
     catch (e) { setToast(e.message, 'error'); }
   };
   const onDelete = async () => {
-    const ok = await ccsmConfirm(`Delete session ${title}? PTY will be killed if alive.`, {
+    const ok = await ccsmConfirm(`Delete session ${title}? PTY will be killed if alive. You can restore it from Recent Deleted for 30 days.`, {
       title: 'Delete session', okLabel: 'Delete', danger: true });
     if (!ok) return;
     try {

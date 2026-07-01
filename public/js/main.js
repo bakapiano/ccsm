@@ -7,7 +7,7 @@ import { effect } from '@preact/signals';
 import { html } from './html.js';
 import { loadPersisted, clockTick, lastRefreshAt, installPrompt, isInstalledPwa, sidebarForcedCollapsed, isMobile, mobileDrawerOpen, activeTab, activeSessionId, sessions, TAB_HEADINGS } from './state.js';
 import { httpBase, apiAuthHeaders, setToken, getDeviceId, isRemoteAccess } from './backend.js';
-import { api, loadConfig, refreshAll, loadSessions, loadFolders, loadWorkspaces, pollHealth, pendingDevice } from './api.js';
+import { api, loadConfig, refreshAll, loadSessions, loadDeletedSessions, loadFolders, loadWorkspaces, pollHealth, pendingDevice } from './api.js';
 import { setToast } from './toast.js';
 import { App } from './components/App.js';
 import { installGlobalKeybindings } from './keybindings.js';
@@ -235,7 +235,7 @@ window.addEventListener('resize', syncViewportHeight);
       return;
     }
     try {
-      await Promise.all([loadSessions(), loadFolders(), loadWorkspaces()]);
+      await Promise.all([loadSessions(), loadDeletedSessions(), loadFolders(), loadWorkspaces()]);
       lastRefreshAt.value = Date.now();
     } catch { /* swallow — next tick retries */ }
     pollHealth();

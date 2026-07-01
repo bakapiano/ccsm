@@ -750,6 +750,11 @@ app.get('/api/sessions', asyncH(async (_req, res) => {
   res.json({ sessions: list, takenAt: Date.now() });
 }));
 
+app.get('/api/sessions/deleted', asyncH(async (_req, res) => {
+  const list = await persistedSessions.loadDeleted();
+  res.json({ sessions: list, takenAt: Date.now(), retentionMs: persistedSessions.DELETED_RETENTION_MS });
+}));
+
 app.put('/api/sessions/:id', asyncH(async (req, res) => {
   const patch = {};
   if (typeof req.body.title === 'string') patch.title = req.body.title;
@@ -816,6 +821,28 @@ app.delete('/api/sessions/:id', asyncH(async (req, res) => {
   const removed = await persistedSessions.remove(req.params.id);
   try { require('./lib/cliActivity').releaseSession(req.params.id); } catch {}
   res.json({ removed });
+}));
+
+app.post('/api/sessions/:id/restore', asyncH(async (req, res) => {
+  const deleted = (await persistedSessions.loadDeleted()).find((s) => s.id === req.params.id);
+  if (!deleted) return res.status(404).json({ error: 'deleted session not found' });
+
+  const folderList = await folders.loadAll();
+  const validFolderIds = new Set(folderList.filter((f) => !f.builtin).map((f) => f.id));
+  const restoreFolderId = validFolderIds.has(deleted.deletedFromFolderId)
+    ? deleted.deletedFromFolderId
+    : null;
+
+  try {
+    const restored = await persistedSessions.restore(req.params.id, { folderId: restoreFolderId });
+    if (!restored) return res.status(404).json({ error: 'deleted session not found' });
+    res.json({ session: restored });
+  } catch (e) {
+    if (e.code === 'ESESSION_CONFLICT') {
+      return res.status(409).json({ error: e.message, conflictId: e.conflictId });
+    }
+    throw e;
+  }
 }));
 
 // Open a session's working directory in the user's configured editor

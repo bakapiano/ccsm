@@ -149,6 +149,19 @@ export const IconStop = ic('0 0 24 24', html`
   <rect x="7" y="7" width="10" height="10" rx="1.5"/>
 `, 14);
 
+export const IconTrash = ic('0 0 24 24', html`
+  <path d="M3 6h18"/>
+  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+  <path d="M10 11v6"/>
+  <path d="M14 11v6"/>
+`, 14);
+
+export const IconRestore = ic('0 0 24 24', html`
+  <path d="M9 14L4 9l5-5"/>
+  <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>
+`, 14);
+
 // Broadcast / remote — radiating arcs over a centre dot. Used on the
 // Remote nav tab; reads as "this machine is broadcasting" / "remote
 // access available".

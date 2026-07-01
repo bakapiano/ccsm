@@ -201,6 +201,12 @@ export async function loadSessions() {
   try { localStorage.setItem('ccsm.sessions-cache', JSON.stringify(S.sessions.value)); } catch {}
 }
 
+export async function loadDeletedSessions() {
+  const r = await api('GET', '/api/sessions/deleted');
+  S.deletedSessions.value = r.sessions || [];
+  try { localStorage.setItem('ccsm.deleted-sessions-cache', JSON.stringify(S.deletedSessions.value)); } catch {}
+}
+
 export async function loadFolders() {
   const r = await api('GET', '/api/folders');
   S.folders.value = (r.folders || []).sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -261,7 +267,14 @@ export async function stopSession(sessionId) {
 
 export async function deleteSession(sessionId) {
   await api('DELETE', `/api/sessions/${sessionId}`);
-  await loadSessions();
+  await Promise.all([loadSessions(), loadDeletedSessions(), loadWorkspaces()]);
+}
+
+export async function restoreSession(sessionId) {
+  const r = await api('POST', `/api/sessions/${sessionId}/restore`);
+  resumeFailed.delete(sessionId);
+  await Promise.all([loadSessions(), loadDeletedSessions(), loadWorkspaces()]);
+  return r.session;
 }
 
 // Open the session's working directory in the user's configured editor
@@ -325,6 +338,7 @@ export async function deleteWorkspace(name) {
 export async function refreshAll() {
   await Promise.all([
     loadSessions(),
+    loadDeletedSessions(),
     loadFolders(),
     loadWorkspaces(),
   ]);

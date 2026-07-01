@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.11
+
+### Features
+- Add a Deleted section to the sessions sidebar. Deleted sessions are soft-deleted for 30 days, hidden from the active session list, and can be restored back into their original folder when possible.
+
 ## 0.22.10
 
 ### Fixes

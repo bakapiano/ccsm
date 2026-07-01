@@ -2,11 +2,11 @@ import { html } from '../html.js';
 import { signal } from '@preact/signals';
 import {
   activeTab, sidebarCollapsed, sidebarForcedCollapsed, isMobile, configDirty, capabilities,
-  sessions, folders, sessionsByFolder, foldersCollapsed, activeSessionId,
+  sessions, deletedSessions, folders, sessionsByFolder, foldersCollapsed, activeSessionId,
   selectTab, selectSession, toggleSidebar, toggleFolder, setSidebarWidth,
   closeOpenSessionTab, clearActiveSession,
 } from '../state.js';
-import { createFolder, renameFolder, deleteFolder, reorderFolders, setSessionFolder, reorderSessions, deleteSession, resumeSession, setSessionTitle } from '../api.js';
+import { createFolder, renameFolder, deleteFolder, reorderFolders, setSessionFolder, reorderSessions, deleteSession, restoreSession, resumeSession, setSessionTitle } from '../api.js';
 import { isRemoteAccess } from '../backend.js';
 import { ccsmPrompt, ccsmConfirm } from '../dialog.js';
 import { setToast } from '../toast.js';
@@ -15,7 +15,8 @@ import { clockTick } from '../state.js';
 import { useDragSort } from './useDragSort.js';
 import {
   IconLaunch, IconConfigure, IconRemote,
-  IconSidebarToggle, IconPencil, IconClose, IconFolder, IconFolderOpen, IconPlus, BrandMark,
+  IconSidebarToggle, IconPencil, IconClose, IconFolder, IconFolderOpen, IconPlus,
+  IconTrash, IconRestore, IconTerminal, BrandMark,
 } from '../icons.js';
 
 // Module-level drag state for session → folder moves. Lives outside the
@@ -75,7 +76,7 @@ function SessionRow({ s, folderId, siblingIds }) {
   const onDeleteClick = async (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
-    const ok = await ccsmConfirm(`Delete session ${title}? PTY will be killed if alive.`, {
+    const ok = await ccsmConfirm(`Delete session ${title}? PTY will be killed if alive. You can restore it from Recent Deleted for 30 days.`, {
       title: 'Delete session', okLabel: 'Delete', danger: true });
     if (!ok) return;
     try {
@@ -165,6 +166,51 @@ function SessionRow({ s, folderId, siblingIds }) {
         <button class="tree-session-action" title="delete" onClick=${onDeleteClick}><${IconClose} /></button>
       </span>
       <span class="tree-meta">${fmtAgo(s.lastActiveAt)}</span>
+    </div>`;
+}
+
+function DeletedSessionRow({ s }) {
+  clockTick.value; // subscribe for fmtAgo refresh
+  const title = s.title || s.workspace || s.id.slice(0, 12);
+  const onRestoreClick = async (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    try {
+      const restored = await restoreSession(s.id);
+      setToast('Session restored');
+      if (restored?.id) selectSession(restored.id);
+    } catch (e) { setToast(e.message, 'error'); }
+  };
+  return html`
+    <div class="tree-session tree-session-deleted"
+         title=${`${title}\n${s.cwd}\ndeleted ${fmtAgo(s.deletedAt)} · ${s.cliId}`}>
+      <span class="tree-deleted-icon"><${IconTerminal} /></span>
+      <span class="tree-label">${title}</span>
+      <span class="tree-session-actions">
+        <button class="tree-session-action" title="restore" onClick=${onRestoreClick}><${IconRestore} /></button>
+      </span>
+      <span class="tree-meta">${fmtAgo(s.deletedAt)}</span>
+    </div>`;
+}
+
+function DeletedSessionsGroup() {
+  const list = deletedSessions.value;
+  const key = 'deleted';
+  const collapsed = !!foldersCollapsed.value[key];
+  return html`
+    <div class="tree-folder tree-folder-deleted">
+      <button class=${`tree-folder-head${collapsed ? '' : ' is-open'}`} onClick=${() => toggleFolder(key)}>
+        <span class="tree-folder-icon"><${IconTrash} /></span>
+        <span class="tree-folder-name">Deleted</span>
+        ${list.length ? html`<span class="tree-folder-count">${list.length}</span>` : null}
+      </button>
+      ${!collapsed ? html`
+        <div class="tree-folder-body">
+          ${list.length === 0
+            ? html`<div class="tree-empty">no deleted sessions</div>`
+            : list.map((s) => html`<${DeletedSessionRow} key=${s.id} s=${s} />`)}
+        </div>
+      ` : null}
     </div>`;
 }
 
@@ -314,6 +360,7 @@ function SessionTree() {
                         sessionList=${grouped.get(f.id) || []}
                         dndHandle=${dnd.handleProps(f.id)}
                         dndRow=${dnd.rowProps(f.id)} />`)}
+      <${DeletedSessionsGroup} />
     </div>`;
 }
 

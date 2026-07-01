@@ -10,6 +10,7 @@ export const capabilities = signal({ webTerminal: false });
 // entry has { id, cliId, cwd, workspace, title, folderId, repos,
 // createdAt, lastActiveAt, status, exitedAt, exitCode, pid }.
 export const sessions     = signal([]);
+export const deletedSessions = signal([]);
 export const folders      = signal([]);   // [{id,name,order,createdAt}]
 export const workspaces   = signal([]);
 export const serverHealth = signal({ state: 'connecting' });
@@ -116,6 +117,7 @@ const LS_OPEN_SESSION_TABS = 'ccsm.open-session-tabs';
 // stale entries self-heal within ~5s without any explicit invalidation.
 const LS_FOLDERS_CACHE = 'ccsm.folders-cache';
 const LS_SESSIONS_CACHE = 'ccsm.sessions-cache';
+const LS_DELETED_SESSIONS_CACHE = 'ccsm.deleted-sessions-cache';
 
 export const SIDEBAR_MIN = 180;
 export const SIDEBAR_MAX = 400;
@@ -176,6 +178,13 @@ export function loadPersisted() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) sessions.value = parsed;
+    }
+  } catch {}
+  try {
+    const raw = localStorage.getItem(LS_DELETED_SESSIONS_CACHE);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) deletedSessions.value = parsed;
     }
   } catch {}
   try {
