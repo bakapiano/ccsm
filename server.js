@@ -1060,11 +1060,15 @@ app.post('/api/sessions/new', async (req, res) => {
 
     const shouldLaunch = req.body && req.body.launch !== false;
     if (existing) {
+      let session = existing;
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'folderId')) {
+        session = await persistedSessions.update(existing.id, { folderId: req.body.folderId || null }) || existing;
+      }
       let launched = null;
       if (shouldLaunch) {
         try {
           launched = await spawnSessionRecord({
-            record: existing,
+            record: session,
             cli,
             cfg,
             body: req.body,
@@ -1081,7 +1085,7 @@ app.post('/api/sessions/new', async (req, res) => {
         workspace,
         created: false,
         reused: true,
-        session: existing,
+        session,
         cloneResults: [],
         launched,
       });

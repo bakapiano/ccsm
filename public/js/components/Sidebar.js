@@ -1,18 +1,20 @@
 import { html } from '../html.js';
 import { signal } from '@preact/signals';
 import {
-  activeTab, sidebarCollapsed, sidebarForcedCollapsed, isMobile, configDirty, capabilities,
+  activeTab, sidebarCollapsed, sidebarForcedCollapsed, isMobile, configDirty, capabilities, config,
   sessions, deletedSessions, folders, sessionsByFolder, foldersCollapsed, activeSessionId,
   selectTab, selectSession, toggleSidebar, toggleFolder, setSidebarWidth,
   closeOpenSessionTab, clearActiveSession,
 } from '../state.js';
-import { createFolder, renameFolder, deleteFolder, reorderFolders, setSessionFolder, reorderSessions, deleteSession, restoreSession, resumeSession, setSessionTitle } from '../api.js';
+import { createFolder, renameFolder, deleteFolder, reorderFolders, setSessionFolder, reorderSessions, deleteSession, restoreSession, resumeSession, setSessionTitle, refreshAll } from '../api.js';
 import { isRemoteAccess } from '../backend.js';
 import { ccsmPrompt, ccsmConfirm } from '../dialog.js';
 import { setToast } from '../toast.js';
 import { fmtAgo } from '../util.js';
 import { clockTick } from '../state.js';
 import { useDragSort } from './useDragSort.js';
+import { streamNewSession } from '../streaming.js';
+import { buildLaunchBodyFromState } from '../launchState.js';
 import {
   IconLaunch, IconConfigure, IconRemote,
   IconSidebarToggle, IconPencil, IconClose, IconFolder, IconFolderOpen, IconPlus,
@@ -26,6 +28,7 @@ import {
 // for the implicit top-level Unsorted bucket.
 const draggingSessionId = signal(null);
 const dragOverFolderKey = signal(null);
+const launchingFolderKey = signal(null);
 const folderKey = (folder) => folder ? folder.id : 'unsorted';
 
 function NavItem({ tab, icon, label, dirty }) {
@@ -255,6 +258,7 @@ function FolderGroup({ folder, sessionList, dndHandle, dndRow }) {
   // with no folder are null, not 'unsorted'). Same for the sameFolder
   // guard below.
   const dropFolderId = isUnsorted ? null : (folder ? folder.id : null);
+  const isLaunching = launchingFolderKey.value === key;
   const draggedSession = draggingSessionId.value
     ? sessions.value.find((s) => s.id === draggingSessionId.value)
     : null;
@@ -286,6 +290,47 @@ function FolderGroup({ folder, sessionList, dndHandle, dndRow }) {
       .catch((e) => setToast(e.message, 'error'));
   };
 
+  const onLaunchInFolder = async (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (launchingFolderKey.value) return;
+
+    const built = buildLaunchBodyFromState(config.value || {}, { folderId: dropFolderId });
+    if (built.error) {
+      setToast(built.error, 'error');
+      selectTab('launch');
+      return;
+    }
+
+    launchingFolderKey.value = key;
+    setToast(`launching in ${name}...`);
+    try {
+      const final = await streamNewSession(built.body, {
+        progressRootId: 'sidebarQuickLaunchProgress',
+        onMeta: (event) => {
+          if (event.type === 'workspace') {
+            setToast(`workspace · ${event.workspace.name}`);
+          }
+        },
+      });
+      if (final.success && final.launched?.id) {
+        await refreshAll();
+        setToast(`launched in ${name}`);
+        selectSession(final.launched.id);
+      } else if (final.success && final.session?.id) {
+        await refreshAll();
+        setToast(`session ready in ${name}`);
+        selectSession(final.session.id);
+      } else {
+        setToast(final.error || 'launch failed', 'error');
+      }
+    } catch (e) {
+      setToast(e.message, 'error');
+    } finally {
+      if (launchingFolderKey.value === key) launchingFolderKey.value = null;
+    }
+  };
+
   // Spread folder-reorder row handlers first, then compose our
   // session-drop handlers on top so both fire.
   const { onDragOver: rowOver, onDragLeave: rowLeave, onDrop: rowDrop, ...rowAttrs } = dndRow || {};
@@ -305,11 +350,18 @@ function FolderGroup({ folder, sessionList, dndHandle, dndRow }) {
           ${collapsed ? html`<${IconFolder} />` : html`<${IconFolderOpen} />`}
         </span>
         <span class="tree-folder-name">${name}</span>
-        ${folder && !isUnsorted ? html`
-          <span class="tree-folder-actions">
+        <span class="tree-folder-actions">
+          <button class="tree-folder-action"
+                  title=${isLaunching ? 'launching...' : `launch in ${name}`}
+                  disabled=${isLaunching}
+                  onClick=${onLaunchInFolder}>
+            <${IconPlus} />
+          </button>
+          ${folder && !isUnsorted ? html`
             <button class="tree-folder-action" title="rename" onClick=${onRename}><${IconPencil} /></button>
             <button class="tree-folder-action" title="delete" onClick=${onDelete}><${IconClose} /></button>
-          </span>` : null}
+          ` : null}
+        </span>
       </button>
       ${!collapsed ? html`
         <div class="tree-folder-body">

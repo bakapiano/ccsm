@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.12
+
+### Features
+- Add a hover quick-launch action on sidebar folders. The action starts a new session in that folder using the saved Launch-page CLI/workdir/repo configuration.
+
 ## 0.22.11
 
 ### Features

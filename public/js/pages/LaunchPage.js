@@ -15,27 +15,10 @@ import { Modal } from '../components/Modal.js';
 import { PickerPanel } from '../components/Picker.js';
 import { DirectoryPicker } from '../components/DirectoryPicker.js';
 import { BrandMark, IconTerminal, IconFolder, IconFolderOpen, IconBranch, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor, IconSparkle, IconWorkspace } from '../icons.js';
+import { loadLaunchState, saveLaunchState } from '../launchState.js';
 
 const ROOT_ID = 'newSessionProgress';
 const selectedRepos = signal(new Set());
-
-// Persist the user's last Launch picks (CLI / folder / mode / cwd /
-// selected repos) so the form stays as they left it across reloads
-// and tab switches. localStorage is best-effort — any access failure
-// falls back silently.
-const LS_KEY = 'ccsm.launch-state';
-function loadLaunchState() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return null;
-    const j = JSON.parse(raw);
-    if (j && typeof j === 'object') return j;
-  } catch {}
-  return null;
-}
-function saveLaunchState(s) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {}
-}
 
 function initRepoSelection(repos, saved) {
   const valid = new Set(repos.map((r) => r.name));

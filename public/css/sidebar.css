@@ -417,22 +417,23 @@ body.is-resizing-sidebar * {
   appearance: none;
   background: transparent;
   border: 0;
-  /* Zero right padding so the glyph itself lands flush against the
-     row's 8px right inset — same column as the tree-meta text on
-     each session row. */
-  padding: 2px 0 2px 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  padding: 0;
   border-radius: 4px;
   cursor: pointer;
   color: var(--ink);
-  display: inline-flex;
-  align-items: center;
   opacity: 0;
   transition: opacity .12s, background .12s;
 }
 .tree-head:hover .tree-head-action,
-.tree-head-action:focus-visible { opacity: 0.7; }
-.tree-head:hover .tree-head-action:hover { opacity: 1; background: var(--sidebar-hover); }
-.tree-head-action svg { width: 14px; height: 14px; }
+.tree-head-action:focus-visible { opacity: 0.85; }
+.tree-head-action:hover { opacity: 1; background: var(--sidebar-hover); }
+.tree-head-action svg { width: 13px; height: 13px; }
 
 /* Folder grouping. Chevron rotates on expand. */
 .tree-folder {
@@ -511,24 +512,39 @@ body.is-resizing-sidebar * {
 @media (hover: hover) and (pointer: fine) {
   .tree-folder-head:hover .tree-folder-actions { display: inline-flex; }
 }
-.tree-folder-action {
+.tree-folder-action,
+.tree-session-action {
   appearance: none;
   background: transparent;
   border: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   padding: 0;
-  font-size: 13px;
   color: var(--ink);
   cursor: pointer;
-  opacity: 0.6;
-  border-radius: 3px;
+  opacity: 0.85;
+  border-radius: 4px;
+  transition: opacity .12s, background .12s;
 }
-.tree-folder-action:hover { opacity: 1; background: var(--sidebar-hover); }
-.tree-folder-action svg { width: 12px; height: 12px; }
+.tree-folder-action:hover,
+.tree-session-action:hover {
+  opacity: 1;
+  background: var(--sidebar-hover);
+}
+.tree-folder-action:disabled,
+.tree-session-action:disabled {
+  cursor: wait;
+  opacity: 0.35;
+}
+.tree-folder-action svg,
+.tree-session-action svg {
+  width: 13px;
+  height: 13px;
+}
 
 .tree-folder-body {
   display: flex;
@@ -703,23 +719,6 @@ body.is-resizing-sidebar * {
   .tree-session:hover .tree-session-actions { display: inline-flex; }
   .tree-session:hover .tree-meta { display: none; }
 }
-.tree-session-action {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  color: var(--ink);
-  cursor: pointer;
-  opacity: 0.6;
-  border-radius: 3px;
-}
-.tree-session-action:hover { opacity: 1; background: var(--sidebar-hover); }
-.tree-session-action svg { width: 12px; height: 12px; }
 .tree-meta {
   font-size: 12px;
   color: var(--ink);
