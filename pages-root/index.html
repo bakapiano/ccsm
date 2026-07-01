@@ -205,7 +205,16 @@ async function probeOnce() {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 1800);
-    const r = await fetch(HEALTH_URL, { cache: 'no-store', signal: ctrl.signal });
+    // targetAddressSpace marks this as an intentional public→loopback call so
+    // PNA-aware browsers send the preflight (backend answers it) instead of
+    // hard-blocking. Some engines reject the unknown option synchronously, so
+    // fall back to a plain fetch.
+    let r;
+    try {
+      r = await fetch(HEALTH_URL, { cache: 'no-store', signal: ctrl.signal, targetAddressSpace: 'loopback' });
+    } catch {
+      r = await fetch(HEALTH_URL, { cache: 'no-store', signal: ctrl.signal });
+    }
     clearTimeout(t);
     if (!r.ok) return null;
     const j = await r.json();

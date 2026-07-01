@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.10
+
+### Fixes
+- Resume Claude, Codex, and Copilot sessions by the upstream CLI session id when ccsm can detect it, so forked or cleared conversations resume the exact active thread instead of the latest folder-level session.
+- Persist discovered CLI session ids across reloads and rescan running sessions so `/clear`, `/new`, and resume-driven id rotations are tracked.
+- Allow the hosted version router to complete Private Network Access loopback probes against the local backend in newer Chromium/Edge builds.
+
 ## 0.22.9
 
 ### Fixes

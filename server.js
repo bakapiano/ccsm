@@ -14,6 +14,7 @@ const {
 } = require('./lib/workspace');
 const webTerminal = require('./lib/webTerminal');
 const persistedSessions = require('./lib/persistedSessions');
+const sessionBinding = require('./lib/sessionBinding');
 const folders = require('./lib/folders');
 const tunnel = require('./lib/tunnel');
 const devices = require('./lib/devices');
@@ -59,6 +60,11 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Device-Id, X-Device-Code');
     res.setHeader('Vary', 'Origin');
+    // Private Network Access: a secure public origin (GH Pages) calling a
+    // loopback backend triggers a PNA preflight. Without this header recent
+    // Chromium/Edge deny the request ("loopback address space") and the
+    // version router hangs on "Backend not running" forever.
+    res.setHeader('Access-Control-Allow-Private-Network', 'true');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -492,6 +498,19 @@ function buildFolderResumeArgs(cli, cfg) {
   return args;
 }
 
+// Pick the resume args for a record. Prefer resuming the EXACT upstream
+// conversation when we've discovered its id (cliSessionId, set by the
+// binding scanner) and the CLI has a `resumeIdArgs` template with an `<id>`
+// placeholder. Otherwise fall back to the folder-level latest/picker command.
+function buildResumeArgs(cli, cfg, record) {
+  const sid = record && record.cliSessionId;
+  const idArgs = Array.isArray(cli?.resumeIdArgs) ? cli.resumeIdArgs : [];
+  if (sid && idArgs.length && idArgs.some((a) => String(a).includes('<id>'))) {
+    return idArgs.map((a) => String(a).replace(/<id>/g, sid));
+  }
+  return buildFolderResumeArgs(cli, cfg);
+}
+
 async function spawnSessionRecord({ record, cli, cfg, body, resume = false }) {
   const live = webTerminal.get(record.id);
   if (live && !live.exitedAt) {
@@ -501,7 +520,7 @@ async function spawnSessionRecord({ record, cli, cfg, body, resume = false }) {
     return { id: record.id, pid: live.meta.pid, cliId: record.cliId };
   }
   const themeArgs = await codexThemeArgs(cli, body && body.theme);
-  const folderResumeArgs = resume ? buildFolderResumeArgs(cli, cfg) : [];
+  const folderResumeArgs = resume ? buildResumeArgs(cli, cfg, record) : [];
   const entry = spawnCliSession({
     cli,
     cwd: record.cwd,
@@ -513,7 +532,60 @@ async function spawnSessionRecord({ record, cli, cfg, body, resume = false }) {
     rows: body && body.rows,
   });
   await persistedSessions.markRunning(record.id, entry.meta.pid);
+  scheduleBindingScan();
   return { id: record.id, pid: entry.meta.pid, cliId: cli.id };
+}
+
+// ---- upstream session-id binding scanner ----
+//
+// ccsm spawns a CLI but never learns its upstream session id from the
+// command line. lib/sessionBinding reads each CLI's runtime trace (keyed by
+// the real CLI pid, found by walking the PTY's descendant process tree) and
+// resolves the live id. We persist it on the record so resume can replay the
+// EXACT conversation. Because forking / clear / resume rotate the id, we
+// rescan on a timer and overwrite whenever it changes.
+let bindingScanRunning = false;
+async function scanSessionBindings() {
+  if (bindingScanRunning) return;
+  if (!webTerminal.available) return;
+  bindingScanRunning = true;
+  try {
+    const all = await persistedSessions.loadAll();
+    const running = all.filter((s) => s && s.status === 'running' && s.pid);
+    if (!running.length) return;
+    let cfg;
+    try { cfg = await loadConfig(); } catch { return; }
+    const typeById = new Map((cfg.clis || []).map((c) => [c.id, c.type]));
+    // Only bother snapshotting the (relatively expensive) process tree if at
+    // least one running session is a CLI we know how to bind.
+    const bindable = running.filter((s) => sessionBinding.supports(typeById.get(s.cliId)));
+    if (!bindable.length) return;
+    const tree = await sessionBinding.snapshotProcessTree();
+    for (const s of bindable) {
+      // Prefer the live PTY's current pid (a respawn under the same id may
+      // have moved it); fall back to the persisted pid.
+      const live = webTerminal.get(s.id);
+      const ptyPid = (live && !live.exitedAt && live.meta && live.meta.pid) ? live.meta.pid : s.pid;
+      let sid = null;
+      try {
+        sid = await sessionBinding.detect(typeById.get(s.cliId), ptyPid, s.cwd, tree);
+      } catch {}
+      if (sid && sid !== s.cliSessionId) {
+        const prev = s.cliSessionId;
+        try { await persistedSessions.setCliSessionId(s.id, sid); } catch {}
+        console.log(`[ccsm] binding ${prev ? 'changed' : 'bound'} · session ${s.id} (${s.cliId}) · ${prev || '(none)'} -> ${sid}`);
+      }
+    }
+  } finally {
+    bindingScanRunning = false;
+  }
+}
+
+// Kick a one-off scan shortly after a launch/resume so a fresh session gets
+// bound without waiting a whole interval (the CLI needs a beat to write its
+// trace file first).
+function scheduleBindingScan(delayMs = 4000) {
+  setTimeout(() => { scanSessionBindings().catch(() => {}); }, delayMs);
 }
 
 app.get('/api/config', asyncH(async (_req, res) => {
@@ -1695,6 +1767,15 @@ function openInBrowser(url) {
     }
   } catch (e) {
     console.error('[ccsm] could not reconcile persisted sessions:', e.message);
+  }
+
+  // Periodically bind each running session to its upstream CLI session id so
+  // resume can replay the exact conversation. Re-runs because fork / clear /
+  // resume rotate the id. Disable with CCSM_NO_BIND_SCAN=1.
+  if (process.env.CCSM_NO_BIND_SCAN !== '1') {
+    scanSessionBindings().catch(() => {});
+    setInterval(() => { scanSessionBindings().catch(() => {}); }, 10_000);
+    console.log('[ccsm] session-id binding scanner active (10s)');
   }
 
   // Prewarm tunnel provider probe. First /api/tunnel/status round-trip
