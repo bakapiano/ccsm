@@ -1,0 +1,266 @@
+/* Data tables · sticky actions column · status mark · title/path cells ·
+   star + rename inline buttons · row stagger animation */
+
+.table-scroll {
+  overflow-x: auto;
+  /* tactile: scroll-padding so the actions column edges aren't flush
+     against the viewport when you scroll right to reach the buttons */
+  scroll-padding-right: var(--s-6);
+}
+.table-scroll::-webkit-scrollbar { height: 8px; }
+.table-scroll .data {
+  min-width: 960px;
+  table-layout: auto;
+}
+
+.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--body);
+  font-size: 13.5px;
+}
+
+.data thead th {
+  padding: 10px var(--s-5) 10px;
+  text-align: left;
+  font-family: var(--body);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+.data thead th.num { text-align: right; }
+/* shrink-to-fit pattern: width:1% with nowrap → the cell takes only
+   what it needs; title / path cells get the remainder */
+.data thead th.col-mark    { width: 28px; padding-left: 0; padding-right: 0; }
+.data thead th.col-star    { width: 28px; padding-left: 0; padding-right: 0; }
+.data thead th.col-actions { width: 1%;   white-space: nowrap; }
+.data thead th.num         { width: 1%;   white-space: nowrap; }
+.data tbody td.num         { white-space: nowrap; }
+.data tbody td:last-child  { white-space: nowrap; }
+.data thead th:first-child { padding-left: var(--s-6); }
+.data thead th:last-child  { padding-right: var(--s-6); }
+
+/* Last column pins to the right edge of the .table-scroll container during
+   horizontal scroll. Backgrounds must be solid because sticky cells overlay
+   the content scrolling beneath them. */
+.data thead th:last-child,
+.data tbody td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  box-shadow: -10px 0 10px -8px rgba(26, 24, 21, 0.08);
+}
+.data thead th:last-child { background: var(--bg); }
+.data tbody td:last-child { background: var(--bg-elev); }
+.data tbody tr:hover td:last-child { background: var(--bg); }
+
+.data tbody tr {
+  border-bottom: 1px solid var(--border-soft);
+  transition: background .12s ease;
+}
+.data tbody tr:last-child { border-bottom: 0; }
+.data tbody tr:hover { background: var(--bg); }
+
+.data tbody td {
+  padding: 12px var(--s-5);
+  vertical-align: middle;
+  color: var(--ink);
+}
+.data tbody td:first-child { padding-left: var(--s-6); }
+.data tbody td:last-child  { padding-right: var(--s-6); }
+.data tbody td.num {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-mid);
+}
+
+/* JS adds .no-anim after the first render so 5s auto-refresh doesn't
+   restage the stagger and strobe. */
+.data tbody:not(.no-anim) tr { animation: row-in .3s ease-out backwards; }
+.data tbody:not(.no-anim) tr:nth-child(1)  { animation-delay:   0ms; }
+.data tbody:not(.no-anim) tr:nth-child(2)  { animation-delay:  20ms; }
+.data tbody:not(.no-anim) tr:nth-child(3)  { animation-delay:  40ms; }
+.data tbody:not(.no-anim) tr:nth-child(4)  { animation-delay:  60ms; }
+.data tbody:not(.no-anim) tr:nth-child(5)  { animation-delay:  80ms; }
+.data tbody:not(.no-anim) tr:nth-child(6)  { animation-delay: 100ms; }
+.data tbody:not(.no-anim) tr:nth-child(7)  { animation-delay: 120ms; }
+.data tbody:not(.no-anim) tr:nth-child(8)  { animation-delay: 140ms; }
+.data tbody:not(.no-anim) tr:nth-child(n+9) { animation-delay: 160ms; }
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Status indicator dot — claude-like. Base color is the muted gray so any
+   unrecognized status string Claude writes ("compacting", "thinking", a
+   transient state, etc.) falls back to "unknown-looking" rather than a
+   stark black dot. .busy / .idle override. */
+.status-mark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+  position: relative;
+  color: var(--ink-faint);
+}
+.status-mark.busy {
+  color: var(--blue);
+  box-shadow: 0 0 0 0 currentColor;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.status-mark.idle    { color: var(--green); }
+.status-mark.unknown { color: var(--ink-faint); }
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(74, 115, 165, 0.4); }
+  70%  { box-shadow: 0 0 0 7px rgba(74, 115, 165, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(74, 115, 165, 0); }
+}
+
+/* Title and path are fixed-width with overflow ellipsis on the inner
+   spans so the sticky actions column is always visible at typical widths;
+   long values truncate, the title attr shows the full value on hover. */
+.title-cell {
+  width: 300px;
+  max-width: 300px;
+  min-width: 0;
+}
+.title-cell .title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+.title-cell .primary {
+  color: var(--ink);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.title-cell .secondary {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  letter-spacing: 0.02em;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.path-cell {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-mid);
+  width: 260px;
+  max-width: 260px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-mid);
+  background: var(--bg);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-soft);
+}
+
+.row-actions {
+  display: flex;
+  gap: var(--s-2);
+  justify-content: flex-end;
+}
+/* Equalised width so Focus / Continue / Resume align cleanly down the
+   actions column (last column is sticky, so width drift is visible).
+   .action is inline-flex with justify-content:center, so the icon+text
+   cluster sits in the middle. */
+.row-actions .action.small {
+  min-width: 96px;
+}
+
+/* Star toggle — inline next to the title text. Outline by default;
+   filled in ink when pinned. */
+.star-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 2px;
+  margin: 0;
+  cursor: pointer;
+  color: var(--ink-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color .12s ease, background .12s ease, transform .15s ease;
+  line-height: 0;
+  flex: 0 0 auto;
+}
+.data tbody tr:hover .star-btn { color: var(--ink-mid); }
+.star-btn:hover {
+  color: #e3b341 !important;
+  background: var(--bg);
+}
+.star-btn:active { transform: scale(0.88); }
+.star-btn.is-fav { color: #e3b341; }
+.star-btn svg { display: block; }
+
+/* Rename (pencil) — only visible on row hover so it doesn't compete with
+   the star. When a label is set (.has-label), it stays subtly visible to
+   indicate the title is overridden. */
+.rename-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 2px;
+  margin: 0;
+  cursor: pointer;
+  color: var(--ink-faint);
+  opacity: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: opacity .12s ease, color .12s ease, background .12s ease, transform .15s ease;
+  line-height: 0;
+  flex: 0 0 auto;
+}
+.data tbody tr:hover .rename-btn {
+  opacity: 1;
+  color: var(--ink-muted);
+}
+.rename-btn:hover {
+  color: var(--ink) !important;
+  background: var(--bg);
+}
+.rename-btn:active { transform: scale(0.88); }
+.rename-btn.has-label {
+  opacity: 0.8;
+  color: var(--ink);
+}
+.rename-btn svg { display: block; }
+
+#favoritesEmpty {
+  padding: var(--s-6) var(--s-6);
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
