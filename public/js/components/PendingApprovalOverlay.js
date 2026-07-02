@@ -33,12 +33,10 @@ export function PendingApprovalOverlay() {
         const d = await api('GET', '/api/devices/me');
         if (d && d.status === 'approved') {
           pendingDevice.value = null;
-          // First load failed because we weren't approved yet — main.js'
-          // boot tried /api/config and got 401, no auto-retry. Now that
-          // we're through the gate, kick a one-shot load so config +
-          // sessions/folders/workspaces hydrate without waiting for the
-          // 5s tick (and config without that ever happening, since the
-          // periodic loop doesn't include loadConfig).
+          // main.js pauses protected API loads while approval is pending.
+          // Now that we're through the gate, kick a one-shot load so
+          // config + sessions/folders/workspaces hydrate immediately
+          // instead of waiting for the next periodic refresh.
           loadConfig().catch(() => {});
           refreshAll().catch(() => {});
         } else if (d) {

@@ -207,17 +207,26 @@ window.addEventListener('resize', syncViewportHeight);
   }
 
   try {
-    await loadConfig();
-    await refreshAll();
+    // Remote tabs that are still waiting for approval cannot call the
+    // protected APIs yet. Let PendingApprovalOverlay do the one-shot
+    // hydrate as soon as the host approves this device.
+    if (!pendingDevice.value) {
+      await loadConfig();
+      await refreshAll();
+    }
     pollHealth();
   } catch (e) {
-    setToast('initial load failed · ' + e.message, 'error');
+    if (!pendingDevice.value) {
+      setToast('initial load failed · ' + e.message, 'error');
+    }
   }
 
-  // 5s data refresh + clock tick (same cadence so fmtAgo "Ns ago" relative
+  // Data refresh + clock tick (same cadence so fmtAgo "Ns ago" relative
   // labels naturally track the data refresh; bumping clockTick more
   // frequently would just cause needless re-renders since fmtAgo's
   // resolution is coarse — 5s buckets under a minute, then m/h/d).
+  // Remote tunnel sessions get a slower cadence to keep background API
+  // traffic from competing with terminal WebSocket input/output.
   // loadWorkspaces is included because the workspace "in use" flag is
   // derived from live session cwds server-side — without it, sessions
   // move in/out of a workspace silently and the grid stays stale.
@@ -225,6 +234,7 @@ window.addEventListener('resize', syncViewportHeight);
   // overlay — every call would 403, fill the console with red, and the
   // user can't see anything anyway. PendingApprovalOverlay handles its
   // own re-hydrate the moment we get approved.
+  const refreshMs = isRemoteAccess() ? 15000 : 5000;
   setInterval(async () => {
     if (pendingDevice.value) {
       // Skip the data fetches (every one would 403) but still poll
@@ -240,7 +250,7 @@ window.addEventListener('resize', syncViewportHeight);
     } catch { /* swallow — next tick retries */ }
     pollHealth();
     clockTick.value = Date.now();
-  }, 5000);
+  }, refreshMs);
 
   // Heartbeat · the server uses this to (a) decide whether to shut down
   // when its own spawned browser closes (multi-client check), and (b) as

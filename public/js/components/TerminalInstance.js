@@ -2,9 +2,11 @@
 // Owns attach/detach, WebSocket transport, xterm input/output forwarding,
 // resize propagation, paste handling, and browser/mobile lifecycle hooks.
 
-import { wsBase, getToken, getDeviceId } from '../backend.js';
+import { wsBase, getToken, getDeviceId, isRemoteAccess } from '../backend.js';
 import { TerminalResizeDebouncer } from './TerminalResizeDebouncer.js';
 import { XtermTerminal } from './XtermTerminal.js';
+
+const REMOTE_INPUT_FLUSH_MS = 12;
 
 export class TerminalInstance {
   constructor({ terminalId, cliType, onDisplaced }) {
@@ -26,6 +28,9 @@ export class TerminalInstance {
     this.pendingLayoutFrame = null;
     this.themeRefreshTimer = null;
     this.pendingThemeRefresh = false;
+    this.remoteAccess = isRemoteAccess();
+    this.pendingInput = '';
+    this.inputFlushTimer = null;
     this.layoutRetryTimers = new Set();
     this.disposables = [];
     this.helperTextarea = null;
@@ -54,7 +59,7 @@ export class TerminalInstance {
   }
 
   sendInput(data) {
-    this._sendFrame({ type: 'input', data });
+    this._sendInput(data);
   }
 
   setCliType(cliType) {
@@ -132,6 +137,9 @@ export class TerminalInstance {
     this.closedByUs = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.themeRefreshTimer) clearTimeout(this.themeRefreshTimer);
+    this._flushInput();
+    if (this.inputFlushTimer) clearTimeout(this.inputFlushTimer);
+    this.inputFlushTimer = null;
     this.themeRefreshTimer = null;
     this.pendingThemeRefresh = false;
     this._cancelScheduledLayout();
@@ -192,7 +200,7 @@ export class TerminalInstance {
   _wireXtermEvents() {
     const dataDisposable = this.xterm.onData((data) => {
       if (this.inReplay) return;
-      this._sendFrame({ type: 'input', data });
+      this.sendInput(data);
     });
     const resizeDisposable = this.xterm.onResize(({ cols, rows }) => {
       this._sendResize(cols, rows);
@@ -349,6 +357,30 @@ export class TerminalInstance {
     if (this.ws && this.ws.readyState === 1) {
       this.ws.send(JSON.stringify(frame));
     }
+  }
+
+  _sendInput(data) {
+    if (!data) return;
+    if (!this.remoteAccess) {
+      this._sendFrame({ type: 'input', data });
+      return;
+    }
+    this.pendingInput += data;
+    if (this.inputFlushTimer !== null) return;
+    this.inputFlushTimer = setTimeout(() => {
+      this.inputFlushTimer = null;
+      this._flushInput();
+    }, REMOTE_INPUT_FLUSH_MS);
+  }
+
+  _flushInput() {
+    if (this.inputFlushTimer !== null) {
+      clearTimeout(this.inputFlushTimer);
+      this.inputFlushTimer = null;
+    }
+    const data = this.pendingInput;
+    this.pendingInput = '';
+    if (data) this._sendFrame({ type: 'input', data });
   }
 
   _scheduleThemeRefreshForCli() {

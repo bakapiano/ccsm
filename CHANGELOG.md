@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.13
+
+### Fixes
+- Batch short bursts of terminal input over remote tunnel sessions, reducing per-keystroke WebSocket overhead on higher-latency links.
+- Slow background data refreshes for remote tunnel sessions so API polling competes less with interactive terminal traffic.
+- Avoid protected config/session loads while a remote device is still pending approval, preventing initial-load error toasts and 403 console noise before the host approves it.
+
 ## 0.22.12
 
 ### Features
