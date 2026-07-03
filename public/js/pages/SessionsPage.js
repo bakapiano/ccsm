@@ -18,7 +18,7 @@ import {
   clearActiveSession,
   clockTick,
 } from '../state.js';
-import { resumeSession, clearResumeFailure, deleteSession, setSessionTitle, switchSessionCli, stopSession, openSessionInEditor } from '../api.js';
+import { resumeSession, resumeSessionFromPicker, clearResumeFailure, deleteSession, setSessionTitle, switchSessionCli, stopSession, openSessionInEditor } from '../api.js';
 import { setToast } from '../toast.js';
 import { ccsmConfirm, ccsmPrompt } from '../dialog.js';
 import { TerminalView } from '../components/TerminalView.js';
@@ -92,12 +92,13 @@ function SessionTabs({ activeId, openSessions, onActivate, onClose, onReorder, o
     </div>`;
 }
 
-function SessionMenu({ session, switchableClis, onRename, onDelete, onOpenEditor, onSwitchCli }) {
+function SessionMenu({ session, switchableClis, onRename, onDelete, onOpenEditor, onResumePicker, onSwitchCli, busy }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef(null);
   return html`
     <button class="session-menu-btn" ref=${anchor}
             aria-label="Session actions" title="Session actions"
+            disabled=${busy}
             onClick=${() => setOpen((v) => !v)}>
       <${IconMoreVert} />
     </button>
@@ -107,6 +108,10 @@ function SessionMenu({ session, switchableClis, onRename, onDelete, onOpenEditor
         <div class="session-menu">
           <button class="session-menu-item" onClick=${() => { setOpen(false); onOpenEditor(); }}>
             <${IconExternal} /> Open in editor
+          </button>
+          <button class="session-menu-item" disabled=${busy}
+                  onClick=${() => { setOpen(false); onResumePicker(); }}>
+            <${IconPlay} /> Resume from picker
           </button>
           ${switchableClis.length ? html`
             <div class="session-menu-separator"></div>
@@ -300,6 +305,29 @@ export function SessionsPage() {
       setToast(`Opening in ${r?.editor || 'editor'}…`);
     } catch (e) { setToast(e.message, 'error'); }
   };
+  const onResumePicker = async () => {
+    const cliName = cli?.name || session.cliId;
+    if (running) {
+      const ok = await ccsmConfirm(
+        `Open ${cliName}'s resume picker for ${title}? This restarts the running terminal in this ccsm session.`,
+        { title: 'Resume from picker', okLabel: 'Open picker' },
+      );
+      if (!ok) return;
+    }
+    clearResumeFailure(session.id);
+    setResumeError(null);
+    setActionBusy(true);
+    try {
+      const launched = await resumeSessionFromPicker(session.id);
+      if (launched?.id) selectSession(launched.id);
+      setToast(`Opened ${cliName} resume picker`);
+    } catch (e) {
+      setResumeError(e.message);
+      setToast(e.message, 'error');
+    } finally {
+      setActionBusy(false);
+    }
+  };
   const onSwitchCli = async (target) => {
     const fromName = cli?.name || session.cliId;
     if (running) {
@@ -343,6 +371,8 @@ export function SessionsPage() {
                         onRename=${onRename}
                         onDelete=${onDelete}
                         onOpenEditor=${onOpenEditor}
+                        onResumePicker=${onResumePicker}
+                        busy=${actionBusy}
                         onSwitchCli=${onSwitchCli} />`} />
     <div class="session-pane">
       <div class="session-pane-body">

@@ -478,6 +478,13 @@
   text-align: left;
 }
 .session-menu-item:hover { background: var(--bg); }
+.session-menu-item:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+.session-menu-item:disabled:hover {
+  background: transparent;
+}
 .session-menu-item.danger { color: var(--danger, #b73f3f); }
 .session-menu-item.danger:hover { background: rgba(183, 63, 63, 0.08); }
 .session-menu-item svg { width: 14px; height: 14px; }

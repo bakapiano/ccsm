@@ -282,7 +282,7 @@ function quoteForCmd(s) {
   return s;
 }
 
-function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [], theme, cols, rows }) {
+function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [], theme, cols, rows, onOutput }) {
   if (!webTerminal.available) {
     const e = new Error('node-pty unavailable · cannot spawn web terminal');
     e.code = 'PTY_UNAVAILABLE';
@@ -352,6 +352,7 @@ function spawnCliSession({ cli, cwd, sessionId, meta, extraArgs = [], theme, col
     onData: () => {
       persistedSessions.touch(sessionId).catch(() => {});
       try { require('./lib/cliActivity').noteOutput(sessionId); } catch {}
+      if (onOutput) { try { onOutput(); } catch {} }
     },
     onExit: ({ exitCode }) => {
       persistedSessions.markExited(sessionId, exitCode).catch(() => {});
@@ -498,6 +499,14 @@ function buildFolderResumeArgs(cli, cfg) {
   return args;
 }
 
+function buildPickerResumeArgs(cli) {
+  const args = Array.isArray(cli?.resumePickerArgs) ? cli.resumePickerArgs : [];
+  if (args.length === 0) {
+    throw new Error(`CLI ${cli?.id || '(unknown)'} has no resumePickerArgs configured`);
+  }
+  return args;
+}
+
 // Pick the resume args for a record. Prefer resuming the EXACT upstream
 // conversation when we've discovered its id (cliSessionId, set by the
 // binding scanner) and the CLI has a `resumeIdArgs` template with an `<id>`
@@ -511,16 +520,38 @@ function buildResumeArgs(cli, cfg, record) {
   return buildFolderResumeArgs(cli, cfg);
 }
 
-async function spawnSessionRecord({ record, cli, cfg, body, resume = false }) {
+async function spawnSessionRecord({
+  record,
+  cli,
+  cfg,
+  body,
+  resume = false,
+  resumeArgsOverride = null,
+  replaceLive = false,
+  bindOnOutputForMs = 0,
+}) {
   const live = webTerminal.get(record.id);
   if (live && !live.exitedAt) {
-    if (record.status !== 'running' || record.pid !== live.meta.pid) {
-      try { await persistedSessions.markRunning(record.id, live.meta.pid); } catch {}
+    if (!replaceLive) {
+      if (record.status !== 'running' || record.pid !== live.meta.pid) {
+        try { await persistedSessions.markRunning(record.id, live.meta.pid); } catch {}
+      }
+      return { id: record.id, pid: live.meta.pid, cliId: record.cliId };
     }
-    return { id: record.id, pid: live.meta.pid, cliId: record.cliId };
   }
   const themeArgs = await codexThemeArgs(cli, body && body.theme);
-  const folderResumeArgs = resume ? buildResumeArgs(cli, cfg, record) : [];
+  const folderResumeArgs = Array.isArray(resumeArgsOverride)
+    ? resumeArgsOverride
+    : (resume ? buildResumeArgs(cli, cfg, record) : []);
+  const bindOnOutputUntil = bindOnOutputForMs > 0 ? Date.now() + bindOnOutputForMs : 0;
+  let lastOutputBindingScanAt = 0;
+  const onOutput = bindOnOutputUntil ? () => {
+    const now = Date.now();
+    if (now > bindOnOutputUntil) return;
+    if (now - lastOutputBindingScanAt < 1500) return;
+    lastOutputBindingScanAt = now;
+    scheduleBindingScan(300);
+  } : null;
   const entry = spawnCliSession({
     cli,
     cwd: record.cwd,
@@ -530,10 +561,26 @@ async function spawnSessionRecord({ record, cli, cfg, body, resume = false }) {
     theme: body && body.theme,
     cols: body && body.cols,
     rows: body && body.rows,
+    onOutput,
   });
   await persistedSessions.markRunning(record.id, entry.meta.pid);
   scheduleBindingScan();
   return { id: record.id, pid: entry.meta.pid, cliId: cli.id };
+}
+
+async function spawnSessionPickerRecord({ record, cli, cfg, body }) {
+  const pickerArgs = buildPickerResumeArgs(cli);
+  const launched = await spawnSessionRecord({
+    record,
+    cli,
+    cfg,
+    body,
+    resumeArgsOverride: pickerArgs,
+    replaceLive: true,
+    bindOnOutputForMs: 2 * 60_000,
+  });
+  scheduleBindingScanSeries([800, 2000, 4000, 8000, 15000, 30000, 60000]);
+  return launched;
 }
 
 // ---- upstream session-id binding scanner ----
@@ -586,6 +633,12 @@ async function scanSessionBindings() {
 // trace file first).
 function scheduleBindingScan(delayMs = 4000) {
   setTimeout(() => { scanSessionBindings().catch(() => {}); }, delayMs);
+}
+
+function scheduleBindingScanSeries(delaysMs) {
+  for (const delay of delaysMs || []) {
+    scheduleBindingScan(delay);
+  }
 }
 
 app.get('/api/config', asyncH(async (_req, res) => {
@@ -1174,6 +1227,29 @@ app.post('/api/sessions/:id/resume', asyncH(async (req, res) => {
       cfg,
       body: req.body,
       resume: true,
+    });
+    res.json({ launched });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+}));
+
+// Force this session through the CLI's interactive resume picker. Unlike
+// /resume, this intentionally ignores a saved cliSessionId and cfg.resumeMode:
+// the user is choosing the upstream conversation inside the CLI, then the
+// binding scanner records the chosen id back onto this ccsm session.
+app.post('/api/sessions/:id/resume-picker', asyncH(async (req, res) => {
+  const record = await persistedSessions.get(req.params.id);
+  if (!record) return res.status(404).json({ error: 'session not found' });
+  const cfg = await loadConfig();
+  const cli = findCliById(cfg, record.cliId);
+  if (!cli) return res.status(400).json({ error: `CLI ${record.cliId} no longer configured` });
+  try {
+    const launched = await spawnSessionPickerRecord({
+      record,
+      cli,
+      cfg,
+      body: req.body,
     });
     res.json({ launched });
   } catch (e) {

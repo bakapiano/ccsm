@@ -326,6 +326,28 @@ export function resumeSession(sessionId) {
   return p;
 }
 
+const resumePickerInFlight = new Map(); // sessionId -> Promise
+
+export function resumeSessionFromPicker(sessionId) {
+  resumeFailed.delete(sessionId);
+  const cached = resumePickerInFlight.get(sessionId);
+  if (cached) return cached;
+  const p = (async () => {
+    const r = await api('POST', `/api/sessions/${sessionId}/resume-picker`, {
+      theme: document.documentElement.dataset.theme,
+      ...(estimateTermSize() || {}),
+    });
+    await loadSessions();
+    return r.launched;
+  })();
+  resumePickerInFlight.set(sessionId, p);
+  p.then(
+    () => { resumePickerInFlight.delete(sessionId); },
+    () => { resumePickerInFlight.delete(sessionId); },
+  );
+  return p;
+}
+
 export async function loadWorkspaces() {
   const r = await api('GET', '/api/workspaces');
   S.workspaces.value = r.workspaces;

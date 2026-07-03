@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.14
+
+### Features
+- Add a session action to open the current CLI's resume picker and bind the picked upstream session id back to the same ccsm session.
+
+### Fixes
+- Reattach the web terminal immediately when a running session is respawned under the same ccsm session id.
+
 ## 0.22.13
 
 ### Fixes
