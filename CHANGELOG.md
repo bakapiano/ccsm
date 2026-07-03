@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.22.15
+
+### Changed
+- Allow multiple ccsm sessions to share the same work folder instead of reusing the first session with the same CLI and cwd.
+
+### Fixes
+- Keep Codex session-id binding stable when several Codex sessions run in the same cwd.
+- Restore deleted sessions even when another active session uses the same CLI and cwd.
+
 ## 0.22.14
 
 ### Features

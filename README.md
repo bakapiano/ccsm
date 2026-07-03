@@ -31,10 +31,11 @@ that folder when you click it again.
 - **Runs every CLI session in the page.** `claude`, `codex`, `copilot`
   or any custom command, in an xterm.js panel. Switch sessions in the
   sidebar; the PTY keeps running in the backend.
-- **Folder-level resume.** ccsm stores the CLI and `cwd` for each
-  session. Click a stopped session later and ccsm launches the CLI in
-  that folder using either the configured "resume latest" command or
-  the CLI's resume picker.
+- **Exact session resume when available.** ccsm records each session's
+  CLI, `cwd`, and discovered upstream session id. Click a stopped
+  session later and ccsm resumes that exact conversation when the CLI
+  supports resume-by-id, falling back to the configured "resume latest"
+  command or the CLI's resume picker.
 - **Workspaces + clones.** "New session" picks an unused workspace
   under your work-dir, clones selected repos with live `git clone
   --progress` streamed to per-repo progress bars, and opens a fresh CLI

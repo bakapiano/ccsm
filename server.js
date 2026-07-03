@@ -592,6 +592,13 @@ async function spawnSessionPickerRecord({ record, cli, cfg, body }) {
 // EXACT conversation. Because forking / clear / resume rotate the id, we
 // rescan on a timer and overwrite whenever it changes.
 let bindingScanRunning = false;
+function bindingCwdKey(type, cwd) {
+  let resolved = '';
+  try { resolved = path.resolve(String(cwd || '')).toLowerCase(); }
+  catch { resolved = String(cwd || '').toLowerCase(); }
+  return `${type || 'unknown'}\0${resolved}`;
+}
+
 async function scanSessionBindings() {
   if (bindingScanRunning) return;
   if (!webTerminal.available) return;
@@ -607,19 +614,49 @@ async function scanSessionBindings() {
     // least one running session is a CLI we know how to bind.
     const bindable = running.filter((s) => sessionBinding.supports(typeById.get(s.cliId)));
     if (!bindable.length) return;
-    const tree = await sessionBinding.snapshotProcessTree();
+    const groupCounts = new Map();
+    const claimedCodexIds = new Map();
     for (const s of bindable) {
+      const type = typeById.get(s.cliId);
+      const key = bindingCwdKey(type, s.cwd);
+      groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+      if (type === 'codex' && s.cliSessionId) {
+        if (!claimedCodexIds.has(key)) claimedCodexIds.set(key, new Set());
+        claimedCodexIds.get(key).add(String(s.cliSessionId));
+      }
+    }
+    const tree = await sessionBinding.snapshotProcessTree();
+    const ordered = [...bindable].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    for (const s of ordered) {
+      const type = typeById.get(s.cliId);
+      const key = bindingCwdKey(type, s.cwd);
+      const duplicateCodexCwd = type === 'codex' && (groupCounts.get(key) || 0) > 1;
+      if (duplicateCodexCwd && s.cliSessionId) {
+        // Codex does not expose a pid -> session-id registry. When several
+        // Codex PTYs share the same cwd, a cwd-only rescan would collapse all
+        // records onto the freshest rollout. Keep known bindings stable and
+        // only assign unclaimed rollout ids to records that are still unbound.
+        continue;
+      }
       // Prefer the live PTY's current pid (a respawn under the same id may
       // have moved it); fall back to the persisted pid.
       const live = webTerminal.get(s.id);
       const ptyPid = (live && !live.exitedAt && live.meta && live.meta.pid) ? live.meta.pid : s.pid;
       let sid = null;
+      const detectOpts = {};
+      if (duplicateCodexCwd) {
+        detectOpts.excludeIds = [...(claimedCodexIds.get(key) || new Set())];
+      }
       try {
-        sid = await sessionBinding.detect(typeById.get(s.cliId), ptyPid, s.cwd, tree);
+        sid = await sessionBinding.detect(type, ptyPid, s.cwd, tree, detectOpts);
       } catch {}
       if (sid && sid !== s.cliSessionId) {
         const prev = s.cliSessionId;
         try { await persistedSessions.setCliSessionId(s.id, sid); } catch {}
+        if (duplicateCodexCwd) {
+          if (!claimedCodexIds.has(key)) claimedCodexIds.set(key, new Set());
+          claimedCodexIds.get(key).add(String(sid));
+        }
         console.log(`[ccsm] binding ${prev ? 'changed' : 'bound'} · session ${s.id} (${s.cliId}) · ${prev || '(none)'} -> ${sid}`);
       }
     }
@@ -886,16 +923,9 @@ app.post('/api/sessions/:id/restore', asyncH(async (req, res) => {
     ? deleted.deletedFromFolderId
     : null;
 
-  try {
-    const restored = await persistedSessions.restore(req.params.id, { folderId: restoreFolderId });
-    if (!restored) return res.status(404).json({ error: 'deleted session not found' });
-    res.json({ session: restored });
-  } catch (e) {
-    if (e.code === 'ESESSION_CONFLICT') {
-      return res.status(409).json({ error: e.message, conflictId: e.conflictId });
-    }
-    throw e;
-  }
+  const restored = await persistedSessions.restore(req.params.id, { folderId: restoreFolderId });
+  if (!restored) return res.status(404).json({ error: 'deleted session not found' });
+  res.json({ session: restored });
 }));
 
 // Open a session's working directory in the user's configured editor
@@ -1106,45 +1136,7 @@ app.post('/api/sessions/new', async (req, res) => {
     emit({ type: 'workspace', workspace, created });
 
     const launchCwd = launchCwdFor(workspace, wantedRepos, req.body && req.body.cwd);
-    const existing = await persistedSessions.findByCliAndCwd(cli.id, launchCwd);
-    if (workspace.inUse && !existing) {
-      return fail(`workspace ${workspace.name} is already used by a ${workspaceOccupancyLabel(cfg)}`);
-    }
-
     const shouldLaunch = req.body && req.body.launch !== false;
-    if (existing) {
-      let session = existing;
-      if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'folderId')) {
-        session = await persistedSessions.update(existing.id, { folderId: req.body.folderId || null }) || existing;
-      }
-      let launched = null;
-      if (shouldLaunch) {
-        try {
-          launched = await spawnSessionRecord({
-            record: session,
-            cli,
-            cfg,
-            body: req.body,
-            resume: true,
-          });
-          emit({ type: 'launched', launched });
-        } catch (e) {
-          return fail(`spawn failed: ${e.message}`);
-        }
-      }
-      emit({
-        type: 'done',
-        success: true,
-        workspace,
-        created: false,
-        reused: true,
-        session,
-        cloneResults: [],
-        launched,
-      });
-      res.end();
-      return;
-    }
 
     // Skip clone entirely when user picked an existing directory — we
     // don't want to dump random repos into someone's project.
@@ -1168,7 +1160,10 @@ app.post('/api/sessions/new', async (req, res) => {
     if (shouldLaunch) {
       // Create the persistedSessions record FIRST so spawnCliSession can
       // use its id as the PTY id (matching ids simplify resume/attach).
-      const createdRecord = await persistedSessions.createOrGetByCliAndCwd({
+      // New sessions are intentionally not de-duped by cwd: multiple ccsm
+      // sessions can now share the same work folder and resume separately
+      // via cliSessionId when the upstream CLI exposes one.
+      record = await persistedSessions.create({
         cliId: cli.id,
         cwd: launchCwd,
         workspace: workspace.name,
@@ -1176,14 +1171,13 @@ app.post('/api/sessions/new', async (req, res) => {
         folderId: (req.body && req.body.folderId) || null,
         title: '',
       });
-      record = createdRecord.entry;
       try {
         launched = await spawnSessionRecord({
           record,
           cli,
           cfg,
           body: req.body,
-          resume: !createdRecord.created,
+          resume: false,
         });
         emit({ type: 'launched', launched });
       } catch (e) {
