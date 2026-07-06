@@ -164,30 +164,36 @@ Environment overrides:
 There's **one source of truth**: `~/.ccsm/sessions.json`, managed by
 `lib/persistedSessions.js`. Every session ccsm starts goes in there
 with `{ id, cliId, cwd, workspace, title, folderId, repos,
-status, … }`. The persisted `id` is ccsm-owned and matches the PTY id;
-it is not an upstream CLI session id.
+status, cliSessionId, … }`. The persisted `id` is ccsm-owned and
+matches the PTY id; `cliSessionId` is the upstream CLI's own session id
+when ccsm can discover it.
 
-**Folder-level resume.** ccsm does not persist upstream session ids and
-does not seed CLI transcript files. Resume launches the configured CLI
-at the record's `cwd` and appends one of two folder-level templates:
+**Exact resume when available.** ccsm spawns a CLI but none of the
+known CLIs put their upstream session id on the command line. The
+binding scanner in `lib/sessionBinding.js` watches each CLI's runtime
+traces and persists the discovered id on the session record. Resume
+prefers `cli.resumeIdArgs` when `cliSessionId` is present, replacing
+`<id>` with that upstream id. If no exact id is known, or the CLI has no
+resume-by-id template, ccsm falls back to one of two folder-level
+templates at the record's `cwd`:
 
 - `resumeMode: 'latest'` -> `cli.resumeLatestArgs`
 - `resumeMode: 'picker'` -> `cli.resumePickerArgs`
 
 Built-ins default to:
 
-- Claude: latest `--continue`, picker `--resume`
-- Codex: latest `resume --last`, picker `resume`
-- Copilot: latest `--continue`, picker `--resume`
+- Claude: exact `--resume <id>`, latest `--continue`, picker `--resume`
+- Codex: exact `resume <id>`, latest `resume --last`, picker `resume`
+- Copilot: exact `--resume=<id>`, latest `--continue`, picker `--resume`
 
 User-added `other` CLIs can leave those arrays empty if they do not
-support resume, or set either template explicitly.
+support resume, or set the templates explicitly.
 
-**Duplicate records.** New sessions are keyed by normalized
-`cliId + cwd`. If the user launches the same CLI in the same folder
-again, ccsm reuses the existing record instead of creating a second
-sidebar entry. Workspace allocation treats every persisted session with
-a `cwd` as occupying that workspace until the session record is deleted.
+**Shared work folders.** Records are not unique by cwd. Launching the
+same CLI in the same folder creates another ccsm session record and a
+separate PTY. Multiple sessions may share one work folder; delete is
+still blocked for a workspace while any persisted session's `cwd` lives
+inside it.
 
 **Auto-resume.** SessionsPage doesn't show a "Resume" button. On
 mount, if the active session's status isn't `running`, it calls
@@ -328,15 +334,15 @@ Browsers always send Origin on WS upgrades.
 
 ## Non-obvious gotchas
 
-**Resume is cwd-scoped.** ccsm assumes the upstream CLI can find the
-right conversation from the current working directory when handed its
-latest/picker resume command. We deliberately do not persist or replay
-upstream session UUIDs.
+**Resume is exact-first, cwd-fallback.** When `cliSessionId` is known,
+ccsm resumes by upstream id. When it is unknown, ccsm falls back to the
+CLI's latest/picker command in the record's `cwd`, so the upstream CLI's
+folder-level resume semantics still matter.
 
-**Workspace reservation is record-scoped.** A stopped session still owns
-its workspace until the session record is deleted. This keeps auto
-allocation from reusing `ws-N` and later resuming an older session in a
-folder that has been repurposed.
+**Workspace delete protection is record-scoped.** A workspace can host
+multiple sessions, but it cannot be deleted while any persisted
+session's `cwd` lives inside it. Auto-allocation still prefers an unused
+workspace for new "auto" launches.
 
 **Auto-resume dedup is module-level in api.js.** Sidebar.onClick and
 SessionsPage's effect can both fire for the same exited session in the
@@ -461,12 +467,46 @@ locally — but it requires you to drive three steps in order:
    tag — pushing only main skips the tag-triggered draft-release
    workflow.
 
-2. **Tag-push fires two workflows automatically:**
+2. **Push fires two workflows automatically; monitor both with `gh`:**
    - `Deploy frontend to GitHub Pages` → publishes `pages-root/` → `/`
      and `public/` → `/<X.Y.Z>/` on `gh-pages`. Old `/<X.Y.Z>/`
      subdirs stay forever (`keep_files: true`).
    - `Draft GitHub Release on tag push` → creates a **draft** release
      for `vX.Y.Z`.
+
+   ```powershell
+   gh run list --repo bakapiano/ccsm --limit 10
+   gh run watch <deploy-pages-run-id> --exit-status
+   gh run watch <release-draft-run-id> --exit-status
+   ```
+
+   The Pages deploy workflow can succeed while GitHub's built-in
+   `pages-build-deployment` job fails or gets stuck, leaving
+   `/<X.Y.Z>/` 404 even though `gh-pages` contains the files. Always
+   watch that workflow too:
+
+   ```powershell
+   gh run list --repo bakapiano/ccsm --workflow pages-build-deployment --limit 5
+   gh run watch <pages-build-deployment-run-id> --exit-status
+   ```
+
+   Then verify the public frontend URL from the local machine:
+
+   ```powershell
+   $v = "X.Y.Z"
+   Invoke-WebRequest "https://bakapiano.github.io/ccsm/$v/" -Method Head
+   Invoke-WebRequest "https://bakapiano.github.io/ccsm/$v/js/main.js" -Method Head
+   ```
+
+   Both must return HTTP 200 before considering the frontend deployed.
+   If `pages-build-deployment` failed with only "Deployment failed, try
+   again later" or the Pages API shows the latest build stuck in
+   `building`, retry the legacy Pages build:
+
+   ```powershell
+   gh api -X POST repos/bakapiano/ccsm/pages/builds
+   gh api repos/bakapiano/ccsm/pages/builds/latest
+   ```
 
 3. **Publish the draft (manual one-liner):**
 
@@ -476,8 +516,13 @@ locally — but it requires you to drive three steps in order:
 
    This flips the draft to "published", which fires the third workflow
    — `Publish to npm` — using the `NPM_TOKEN` repo secret with
-   provenance. The runner needs ~30s; verify with
-   `gh run watch <run-id> --exit-status` or just refresh npmjs.com.
+   provenance. The runner needs ~30s; verify with `gh` and npm:
+
+   ```powershell
+   gh run list --repo bakapiano/ccsm --workflow "Publish to npm" --limit 5
+   gh run watch <publish-run-id> --exit-status
+   npm view @bakapiano/ccsm version bin dist-tags
+   ```
 
 The reason for the draft step instead of auto-publishing on tag push:
 gives you a chance to abort a half-baked tag (delete the draft +
@@ -521,4 +566,4 @@ When adding features, the natural extension points:
 - **Persistent user data**: drop a JSON file under `~/.ccsm/` and use `lib/jsonStore.js`'s factory.
 - **Different CLIs**: add a built-in to `DEFAULT_CLIS` in `lib/config.js` with `resumeLatestArgs` / `resumePickerArgs`, and add an icon to `public/js/icons.js`.
 - **A capability**: advertise via `/api/capabilities`. Frontend gates UI on `caps.<feature>`.
-- **Bumping the frontend**: just `npm version <patch|minor|major>` + push. The GH Pages workflow publishes to `/<new-version>/` and the router redirects users to it.
+- **Bumping the frontend**: use the Release process above, then verify both the Pages workflow and `https://bakapiano.github.io/ccsm/<new-version>/` return 200.
