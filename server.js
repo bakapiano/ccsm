@@ -15,6 +15,7 @@ const {
 const webTerminal = require('./lib/webTerminal');
 const persistedSessions = require('./lib/persistedSessions');
 const sessionBinding = require('./lib/sessionBinding');
+const localCliSessions = require('./lib/localCliSessions');
 const folders = require('./lib/folders');
 const tunnel = require('./lib/tunnel');
 const devices = require('./lib/devices');
@@ -1249,6 +1250,98 @@ app.post('/api/sessions/:id/resume-picker', asyncH(async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+}));
+
+// ---- list existing CLI sessions discovered on disk (for "Load session") ----
+// Scans ~/.claude / <CODEX_HOME> / ~/.copilot for past conversations and tags
+// each with whether ccsm already adopted it (matching cliSessionId). The
+// Load-session modal renders these as rows the user can pull into ccsm.
+app.get('/api/cli-sessions', asyncH(async (req, res) => {
+  const type = String(req.query.type || 'all').toLowerCase();
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 30));
+  const [page, existing] = await Promise.all([
+    localCliSessions.listPaginated({ type, offset, limit }),
+    persistedSessions.loadAll(),
+  ]);
+  // Map each upstream session id → the ccsm record that already owns it, so
+  // the frontend can show where an adopted session actually lives (its ccsm
+  // name + folder + CLI) instead of the row's own picker state.
+  const recByCliSessionId = new Map();
+  for (const rec of existing) {
+    if (rec.cliSessionId && !recByCliSessionId.has(rec.cliSessionId)) {
+      recByCliSessionId.set(rec.cliSessionId, rec);
+    }
+  }
+  const sessions = page.sessions.map((s) => {
+    const rec = recByCliSessionId.get(s.cliSessionId);
+    return {
+      ...s,
+      adopted: !!rec,
+      adoptedRecord: rec ? {
+        id: rec.id,
+        cliId: rec.cliId,
+        title: rec.title || '',
+        workspace: rec.workspace || '',
+        folderId: rec.folderId || null,
+      } : null,
+    };
+  });
+  res.json({
+    sessions,
+    total: page.total,
+    offset: page.offset,
+    limit: page.limit,
+    hasMore: page.hasMore,
+  });
+}));
+
+// ---- adopt: create a ccsm record pointing at an existing CLI session ----
+// Body: { cliId, cliSessionId, cwd, title?, folderId? }
+// Doesn't spawn — the new entry shows up as "exited" in the sidebar; clicking
+// it kicks off the regular resume flow, which uses cli.resumeIdArgs
+// ('--resume <id>' etc.) so the upstream conversation reattaches.
+app.post('/api/sessions/adopt', asyncH(async (req, res) => {
+  const { cliId, cliSessionId, cwd, title, folderId } = req.body || {};
+  if (!cliId || !cliSessionId || !cwd) {
+    return res.status(400).json({ error: 'cliId, cliSessionId and cwd required' });
+  }
+  const cfg = await loadConfig();
+  const cli = findCliById(cfg, cliId);
+  if (!cli) return res.status(400).json({ error: `CLI ${cliId} not configured` });
+
+  // Normalize cwd to the same shape /api/sessions/new + the workspace
+  // in-use check use (path.resolve), so an adopted+running session's
+  // workspace is correctly flagged occupied.
+  const resolvedCwd = path.resolve(String(cwd));
+  try {
+    const fsmod = require('node:fs/promises');
+    const st = await fsmod.stat(resolvedCwd);
+    if (!st.isDirectory()) {
+      return res.status(400).json({ error: `cwd is not a directory: ${resolvedCwd}` });
+    }
+  } catch {
+    return res.status(400).json({ error: `cwd not found: ${resolvedCwd}` });
+  }
+
+  // Refuse duplicates: if any ccsm record already owns this upstream
+  // session id, return it so the caller can jump to it.
+  const all = await persistedSessions.loadAll();
+  const dup = all.find((s) => s.cliSessionId === cliSessionId);
+  if (dup) return res.json({ session: dup, alreadyAdopted: true });
+
+  const fid = (folderId && folderId !== 'unsorted') ? folderId : null;
+  const record = await persistedSessions.create({
+    cliId,
+    cwd: resolvedCwd,
+    workspace: path.basename(resolvedCwd) || resolvedCwd,
+    folderId: fid,
+    title: title || '',
+    repos: [],
+    status: 'exited',
+    cliSessionId,
+  });
+  res.json({ session: record, alreadyAdopted: false });
 }));
 
 // codex-only: when the ccsm terminal is in LIGHT mode, inject a session-scoped

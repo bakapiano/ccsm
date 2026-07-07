@@ -14,6 +14,7 @@ import { ProgressList } from '../components/ProgressList.js';
 import { Modal } from '../components/Modal.js';
 import { PickerPanel } from '../components/Picker.js';
 import { DirectoryPicker } from '../components/DirectoryPicker.js';
+import { LoadSessionModal } from '../components/LoadSessionModal.js';
 import { BrandMark, IconTerminal, IconFolder, IconFolderOpen, IconBranch, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor, IconSparkle, IconWorkspace } from '../icons.js';
 import { loadLaunchState, saveLaunchState } from '../launchState.js';
 
@@ -62,6 +63,7 @@ function LaunchHero() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [openPicker, setOpenPicker] = useState(null); // 'cli' | 'folder' | 'workdir' | null
+  const [showLoad, setShowLoad] = useState(false);    // "Load existing session" modal
 
   // If config arrives after first render (cliId === '') OR the saved
   // cli was removed, snap to the current default.
@@ -354,6 +356,14 @@ function LaunchHero() {
           </svg>
         </span>`}
       </button>
+
+      <button type="button" class="launch-load-link"
+              onClick=${() => setShowLoad(true)}>
+        <${IconFolderOpen} /> Load an existing session
+      </button>
+      ${showLoad ? html`
+        <${LoadSessionModal} defaultFolderId=${folderId}
+                             onClose=${() => setShowLoad(false)} />` : null}
 
       <${ProgressList} rootId=${ROOT_ID} />
       ${result ? html`<div class="launch-status mono">${result}</div>` : null}
