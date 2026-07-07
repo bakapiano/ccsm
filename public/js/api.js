@@ -348,6 +348,23 @@ export function resumeSessionFromPicker(sessionId) {
   return p;
 }
 
+// ---- load existing on-disk sessions ("Load session" / adopt) ----
+// Scan ~/.claude / <CODEX_HOME> / ~/.copilot for past conversations. type is
+// 'all' | 'claude' | 'codex' | 'copilot'; the modal paginates via offset/limit.
+export async function listLocalCliSessions({ type = 'all', offset = 0, limit = 30 } = {}) {
+  const qs = new URLSearchParams({ type, offset: String(offset), limit: String(limit) });
+  return api('GET', `/api/cli-sessions?${qs.toString()}`);
+}
+
+// Create a ccsm record that resumes an existing on-disk session. Doesn't
+// spawn — the sidebar row shows "exited" until the user clicks it, at which
+// point the normal resume flow reattaches via cli.resumeIdArgs.
+export async function adoptSession({ cliId, cliSessionId, cwd, title, folderId }) {
+  const r = await api('POST', '/api/sessions/adopt', { cliId, cliSessionId, cwd, title, folderId });
+  await Promise.all([loadSessions(), loadWorkspaces()]);
+  return r;
+}
+
 export async function loadWorkspaces() {
   const r = await api('GET', '/api/workspaces');
   S.workspaces.value = r.workspaces;
