@@ -1,0 +1,398 @@
+/* "Load existing session" modal — filter chips + search, a table of
+   discovered sessions (left) with per-row CLI + folder pickers (right),
+   and a paginated footer. Colours all derive from tokens so dark mode
+   follows automatically. */
+
+/* Entry link on the Launch page, under the Launch CTA. */
+.launch-load-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--body);
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  padding: 4px 10px;
+  border-radius: 7px;
+  margin-top: calc(-1 * var(--s-2));
+  transition: color .12s ease, background .12s ease;
+}
+.launch-load-link:hover { color: var(--ink); background: var(--bg-elev); }
+.launch-load-link svg { width: 15px; height: 15px; }
+
+.loadsess { display: flex; flex-direction: column; }
+
+/* ── sticky head: type chips + search + rescan ─────────────────── */
+.loadsess-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 12px 16px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.loadsess-tabs { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.loadsess-chip {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  color: var(--ink-mid);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.loadsess-chip:hover { background: var(--bg); color: var(--ink); }
+.loadsess-chip.is-active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg-elev);
+}
+.loadsess-chip-icon { display: inline-flex; }
+.loadsess-chip-icon img,
+.loadsess-chip-icon svg { width: 14px; height: 14px; display: block; }
+.loadsess-chip-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  opacity: .7;
+  font-variant-numeric: tabular-nums;
+}
+
+.loadsess-tools { display: inline-flex; align-items: center; gap: 8px; }
+.loadsess-search { position: relative; display: inline-flex; align-items: center; }
+.loadsess-search-icon {
+  position: absolute;
+  left: 9px;
+  display: inline-flex;
+  color: var(--ink-faint);
+  pointer-events: none;
+}
+.loadsess-search-icon svg { width: 14px; height: 14px; }
+.loadsess-search-input {
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 12.5px;
+  padding: 5px 26px 5px 28px;
+  width: 230px;
+  max-width: 46vw;
+  outline: none;
+  transition: border-color .12s, box-shadow .12s;
+}
+.loadsess-search-input:focus {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(26, 24, 21, 0.08));
+}
+.loadsess-search-clear {
+  position: absolute;
+  right: 6px;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--ink-faint);
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 4px;
+}
+.loadsess-search-clear:hover { color: var(--ink); background: var(--bg-elev); }
+.loadsess-search-clear svg { width: 12px; height: 12px; }
+.loadsess-rescan {
+  appearance: none;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-mid);
+  transition: background .12s, color .12s, border-color .12s;
+}
+.loadsess-rescan:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+.loadsess-rescan:disabled { opacity: .5; cursor: not-allowed; }
+.loadsess-rescan svg { width: 15px; height: 15px; }
+
+/* ── table ─────────────────────────────────────────────────────── */
+.loadsess-list { padding: 4px 16px 8px; }
+.loadsess-table {
+  width: 100%;
+  border-collapse: collapse;
+  /* Fixed layout so a long summary can't blow out the first column and
+     push the CLI / folder / action columns off the modal edge. */
+  table-layout: fixed;
+}
+.loadsess-table thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  padding: 10px 10px 6px;
+  border-bottom: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+.loadsess-table tbody td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: middle;
+}
+.loadsess-table tbody tr:hover { background: var(--bg); }
+/* Adopted rows use a soft tint (not opacity) so the ccsm name + folder stay
+   fully legible. */
+.loadsess-table tbody tr.is-loaded { background: var(--bg); }
+
+/* Percentage widths (not px) so the columns scale with the modal and never
+   overflow into a horizontal scrollbar. The Session column takes whatever's
+   left. */
+.loadsess-col-cli { width: 23%; }
+.loadsess-col-folder { width: 19%; }
+.loadsess-col-act { width: 108px; text-align: right; }
+
+.loadsess-sess { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.loadsess-sess-icon { flex: none; margin-top: 1px; display: inline-flex; }
+.loadsess-sess-icon img,
+.loadsess-sess-icon svg { width: 18px; height: 18px; display: block; }
+.loadsess-sess-main { min-width: 0; }
+.loadsess-sess-title {
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.loadsess-untitled { color: var(--ink-faint); font-style: italic; }
+.loadsess-sess-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  margin-top: 3px;
+}
+.loadsess-sess-path {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.loadsess-dot { color: var(--border-strong); }
+
+.loadsess-select {
+  width: 100%;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  max-width: none;
+}
+.loadsess-select:disabled { opacity: .55; }
+
+/* Folder pill — mirrors the New Session folder picker (a button that opens
+   the shared PickerPanel, so "New folder" works here too). Sized to sit in
+   the table cell like the CLI select next to it. */
+.loadsess-folder-pill {
+  appearance: none;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-family: var(--body);
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .12s, background .12s;
+}
+.loadsess-folder-pill:hover { border-color: var(--ink-faint); background: var(--bg-elev); }
+.loadsess-folder-pill-icon { display: inline-flex; flex: none; color: var(--ink-muted); }
+.loadsess-folder-pill-icon svg { width: 14px; height: 14px; display: block; }
+.loadsess-folder-pill-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.loadsess-folder-pill-chev { display: inline-flex; flex: none; color: var(--ink-faint); }
+.loadsess-folder-pill-chev svg { width: 14px; height: 14px; display: block; }
+
+.loadsess-open { gap: 4px; }
+.loadsess-open svg { width: 13px; height: 13px; }
+
+/* Split "Load ▾" button — primary Load on the left, a chevron toggle on the
+   right that opens the "Load + open" popover. Mirrors a Save / Save-as split
+   control. Uses the calm accent (not full ink black) so the row of buttons
+   doesn't read as a heavy black slab. A 2px gap between the halves shows the
+   row background through as a crisp seam. */
+.loadsess-split {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.loadsess-split .action.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: none;
+}
+.loadsess-split .action.primary:hover:not(:disabled) {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+  box-shadow: 0 2px 8px -4px var(--accent-soft);
+}
+.loadsess-split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.loadsess-split-toggle {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+}
+.loadsess-split-toggle svg { width: 19px; height: 19px; display: block; }
+
+/* Popover menu launched by the split toggle. */
+.loadsess-menu { padding: 5px; display: flex; flex-direction: column; gap: 2px; }
+.loadsess-menu-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+  color: var(--ink);
+  transition: background .12s ease;
+}
+.loadsess-menu-item:hover { background: var(--bg); }
+.loadsess-menu-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink-muted);
+}
+.loadsess-menu-icon svg { width: 15px; height: 15px; display: block; }
+.loadsess-menu-text { display: flex; flex-direction: column; min-width: 0; }
+.loadsess-menu-title { font-size: 12.5px; font-weight: 600; }
+.loadsess-menu-sub { font-size: 11px; color: var(--ink-muted); }
+
+/* "In ccsm as <name>" badge above the summary on adopted rows. */
+.loadsess-inccsm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-bottom: 4px;
+  max-width: 100%;
+}
+.loadsess-inccsm-badge > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.loadsess-inccsm-badge strong { color: var(--ink); font-weight: 600; }
+.loadsess-inccsm-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green, #4a8a4a);
+  flex: none;
+}
+
+/* Read-only CLI / folder cell for adopted rows (replaces the select). */
+.loadsess-readonly {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-mid);
+  min-width: 0;
+  max-width: 100%;
+}
+.loadsess-readonly-icon { display: inline-flex; flex: none; }
+.loadsess-readonly-icon img,
+.loadsess-readonly-icon svg { width: 15px; height: 15px; display: block; }
+.loadsess-readonly-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── empty / loading ───────────────────────────────────────────── */
+.loadsess-empty {
+  text-align: center;
+  color: var(--ink-muted);
+  padding: 48px 16px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.loadsess-empty-mark { font-size: 28px; color: var(--border-strong); }
+.loadsess-error { color: var(--red); }
+.loadsess-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--ink);
+  display: inline-block;
+  animation: loadsess-spin .7s linear infinite;
+}
+@keyframes loadsess-spin { to { transform: rotate(360deg); } }
+
+/* ── footer pager (rendered in .modal-foot) ────────────────────── */
+.loadsess-pager { display: inline-flex; align-items: center; gap: 10px; margin-right: auto; }
+.loadsess-pager-info {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .loadsess-head { flex-direction: column; align-items: stretch; }
+  .loadsess-tools { justify-content: space-between; }
+  .loadsess-search-input { width: 100%; max-width: none; flex: 1; }
+}
