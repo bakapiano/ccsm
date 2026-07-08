@@ -60,6 +60,7 @@ function LaunchHero() {
   const [folderId, setFolderId] = useState(saved?.folderId || '');
   const [mode, setMode] = useState(saved?.mode === 'cwd' ? 'cwd' : 'auto');
   const [cwd, setCwd] = useState(saved?.cwd || ''); // only used when mode === 'cwd'
+  const [sessionName, setSessionName] = useState(''); // optional workspace folder name (auto mode)
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [openPicker, setOpenPicker] = useState(null); // 'cli' | 'folder' | 'workdir' | null
@@ -120,6 +121,7 @@ function LaunchHero() {
           cwd: useCwd ? cwd : undefined,
           cliId: cliId || undefined,
           folderId: folderId || undefined,
+          workspaceName: (!useCwd && sessionName.trim()) ? sessionName.trim() : undefined,
         },
         {
           progressRootId: ROOT_ID,
@@ -134,6 +136,7 @@ function LaunchHero() {
       );
       if (final.success && final.launched) {
         setToast(`launched · ${final.workspace.name}`);
+        setSessionName('');
         await refreshAll();
         selectSession(final.launched.id);
         selectTab('sessions');
@@ -345,6 +348,16 @@ function LaunchHero() {
                             onClose=${close} />
           </${Modal}>` : null}
       </div>
+
+      ${mode === 'auto' ? html`
+        <input class="launch-name-input" type="text"
+               placeholder="Name this session · defaults to ws-N"
+               aria-label="Session name"
+               value=${sessionName}
+               maxLength=${80}
+               onInput=${(e) => setSessionName(e.currentTarget.value)}
+               onKeyDown=${(e) => { if (e.key === 'Enter' && !busy && cliId) onLaunch(); }} />
+      ` : null}
 
       <button class="action primary launch-cta"
               disabled=${busy || !cliId || (mode === 'cwd' && !cwd)}

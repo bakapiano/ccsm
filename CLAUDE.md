@@ -283,7 +283,10 @@ they launch at the workspace root so selected repos are sibling folders.
 
 **Workspace naming.** Auto-allocated names are `ws-1`, `ws-2`, …
 (lowest free integer). Hand-named folders under `workDir` are still
-picked up.
+picked up. The Launch page's optional **Session name** field sends
+`workspaceName`, which creates (or reuses) a folder with that exact name
+under `workDir` instead of auto-allocating `ws-N` (sanitized to a single
+safe directory segment; blank falls back to `ws-N`).
 
 **Frontend trusts the backend's capability advertisement.**
 `/api/capabilities` returns `{ webTerminal: true|false, ... }`. The
@@ -306,7 +309,7 @@ allows `https://bakapiano.github.io` only — never `*`.
 | DELETE | `/api/sessions/:id` | kill PTY + drop record |
 | POST | `/api/sessions/:id/switch-cli` | change the persisted `cliId` for future resumes |
 | POST | `/api/sessions/:id/stop` | kill the live PTY but keep the record; sets `manualStopped:true` so UI won't auto-resume |
-| POST | `/api/sessions/new` | body `{cliId, cwd?, repos?, folderId?, title?}` — NDJSON stream (workspace · clone-progress · launched) |
+| POST | `/api/sessions/new` | body `{cliId, cwd?, workspace?, workspaceName?, repos?, folderId?, title?}` — NDJSON stream (workspace · clone-progress · launched) |
 | POST | `/api/sessions/:id/resume` | re-spawn at record `cwd` with the configured latest/picker resume args |
 | GET | `/api/folders` · POST `/api/folders` · PUT/DELETE `/api/folders/:id` · POST `/api/folders/reorder` | folder CRUD |
 | GET | `/api/workspaces` | workspaces under workDir with repo clone status + in-use flag |

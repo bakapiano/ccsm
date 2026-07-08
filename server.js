@@ -9,6 +9,7 @@ const { loadConfig, saveConfig, DATA_DIR } = require('./lib/config');
 const {
   listWorkspaces,
   findOrCreateWorkspace,
+  createNamedWorkspace,
   ensureReposInWorkspace,
   isInside,
 } = require('./lib/workspace');
@@ -1100,10 +1101,11 @@ app.post('/api/sessions/new', async (req, res) => {
 
     let workspace;
     let created = false;
-    // Three cwd modes:
-    //   1. body.cwd      — user picked an existing directory; skip clone.
-    //   2. body.workspace — reuse a named workspace under workDir.
-    //   3. (neither)     — auto-allocate a fresh ws-N.
+    // cwd / workspace resolution modes:
+    //   1. body.cwd           — user picked an existing directory; skip clone.
+    //   2. body.workspace     — reuse a named workspace under workDir.
+    //   3. body.workspaceName — create/reuse a user-named workspace folder.
+    //   4. (none of the above)— auto-allocate a fresh ws-N.
     if (req.body && req.body.cwd) {
       const fsmod = require('node:fs/promises');
       const cwd = path.resolve(String(req.body.cwd));
@@ -1120,6 +1122,19 @@ app.post('/api/sessions/new', async (req, res) => {
       const all = await listWorkspaces({ workDir: cfg.workDir, repos: cfg.repos, busyPaths });
       workspace = all.find((w) => w.name === req.body.workspace);
       if (!workspace) return fail(`workspace ${req.body.workspace} not found`);
+    } else if (req.body && typeof req.body.workspaceName === 'string' && req.body.workspaceName.trim()) {
+      // User named this session on the Launch page → create (or reuse) a
+      // workspace folder with that name instead of an auto-allocated ws-N.
+      const allSess = await persistedSessions.loadAll();
+      const busyPaths = workspaceOccupancySessions(allSess, cfg).map((s) => s.cwd);
+      const r = await createNamedWorkspace({
+        workDir: cfg.workDir,
+        name: req.body.workspaceName,
+        repos: cfg.repos,
+        busyPaths,
+      });
+      workspace = r.workspace;
+      created = r.created;
     } else {
       // Collect cwds of sessions that currently reserve workspaces so
       // findOrCreateWorkspace can flag them as in-use and skip past them.
