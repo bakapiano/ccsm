@@ -20,7 +20,7 @@ import { html } from '../html.js';
 import { useEffect, useState } from 'preact/hooks';
 import { api } from '../api.js';
 import { setToast } from '../toast.js';
-import { IconFolder, IconHome, IconChevronLeft, IconChevronRight, IconChevronUp, IconPencil } from '../icons.js';
+import { IconFolder, IconHome, IconChevronLeft, IconChevronRight, IconChevronUp, IconPencil, IconPlus } from '../icons.js';
 
 export function DirectoryPicker({ initialPath, onPick }) {
   const [data, setData] = useState(null);
@@ -29,6 +29,9 @@ export function DirectoryPicker({ initialPath, onPick }) {
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
 
   // Push the current selection up on every change so the parent's
   // shared "Use folder" CTA can act on it.
@@ -78,6 +81,28 @@ export function DirectoryPicker({ initialPath, onPick }) {
     const p = (input || '').trim();
     setEditing(false);
     if (p && p !== path) browse(p);
+  };
+  const onNewFolder = () => {
+    if (!data?.exists || loading) return;
+    setCreating(true);
+  };
+  const submitNewFolder = async (ev) => {
+    ev?.preventDefault?.();
+    if (!data?.exists || loading || creatingFolder) return;
+    const clean = (newFolderName || '').trim();
+    if (!clean) return;
+    setCreatingFolder(true);
+    try {
+      const r = await api('POST', '/api/browse', { path: data.path, name: clean });
+      setToast(`created folder · ${r.name}`);
+      setCreating(false);
+      setNewFolderName('');
+      await browse(r.path);
+    } catch (e) {
+      setToast(e.message, 'error');
+    } finally {
+      setCreatingFolder(false);
+    }
   };
 
   if (!data) {
@@ -169,6 +194,42 @@ export function DirectoryPicker({ initialPath, onPick }) {
 
       <div class="filex-foot">
         <span class="filex-foot-current mono" title=${path}>${path || ' '}</span>
+        <div class="filex-foot-actions">
+          ${creating ? html`
+            <form class="filex-new-folder" onSubmit=${submitNewFolder}>
+              <input class="input filex-new-folder-input"
+                     type="text"
+                     placeholder="Folder name"
+                     value=${newFolderName}
+                     autoFocus
+                     disabled=${creatingFolder}
+                     onInput=${(e) => setNewFolderName(e.currentTarget.value)}
+                     onKeyDown=${(e) => {
+                       if (e.key === 'Escape') {
+                         setCreating(false);
+                         setNewFolderName('');
+                       }
+                     }} />
+              <button type="submit" class="action small primary"
+                      disabled=${creatingFolder || !newFolderName.trim()}>
+                ${creatingFolder ? 'Creating…' : 'Create'}
+              </button>
+              <button type="button" class="action small subtle"
+                      disabled=${creatingFolder}
+                      onClick=${() => { setCreating(false); setNewFolderName(''); }}>
+                Cancel
+              </button>
+            </form>
+          ` : html`
+            <button type="button" class="action small subtle"
+                    title="Create folder in the current directory"
+                    disabled=${loading || !data.exists}
+                    onClick=${onNewFolder}>
+              <${IconPlus} />
+              <span>New folder</span>
+            </button>
+          `}
+        </div>
       </div>
     </div>`;
 }

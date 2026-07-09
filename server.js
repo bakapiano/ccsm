@@ -1022,6 +1022,44 @@ app.get('/api/browse', asyncH(async (req, res) => {
   });
 }));
 
+app.post('/api/browse', asyncH(async (req, res) => {
+  const fs = require('node:fs/promises');
+  const parent = req.body?.path ? path.resolve(String(req.body.path)) : null;
+  const rawName = String(req.body?.name || '').trim();
+  if (!parent) return res.status(400).json({ error: 'path required' });
+  if (!rawName) return res.status(400).json({ error: 'folder name required' });
+  if (
+    rawName === '.' ||
+    rawName === '..' ||
+    /[\\/:*?"<>|\u0000-\u001f]/.test(rawName) ||
+    /^[.\s]|[.\s]$/.test(rawName) ||
+    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(rawName)
+  ) {
+    return res.status(400).json({ error: 'invalid folder name' });
+  }
+
+  let st;
+  try {
+    st = await fs.stat(parent);
+  } catch {
+    return res.status(404).json({ error: 'parent directory not found' });
+  }
+  if (!st.isDirectory()) return res.status(400).json({ error: 'path is not a directory' });
+
+  const child = path.resolve(parent, rawName);
+  if (path.dirname(child).toLowerCase() !== parent.toLowerCase()) {
+    return res.status(400).json({ error: 'invalid folder name' });
+  }
+
+  try {
+    await fs.mkdir(child);
+  } catch (e) {
+    if (e.code === 'EEXIST') return res.status(409).json({ error: 'folder already exists' });
+    throw e;
+  }
+  res.json({ path: child, name: rawName });
+}));
+
 app.get('/api/workspaces', asyncH(async (req, res) => {
   const cfg = await loadConfig();
   const allSess = await persistedSessions.loadAll();

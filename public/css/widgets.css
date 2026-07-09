@@ -688,6 +688,24 @@
   gap: 6px;
   flex-shrink: 0;
 }
+.filex-foot-actions .action svg {
+  width: 13px;
+  height: 13px;
+}
+.filex-new-folder {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+.filex-new-folder .filex-new-folder-input {
+  width: 180px;
+  max-width: 36vw;
+  min-width: 120px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
 .pill-icon {
   display: inline-flex;
   align-items: center;

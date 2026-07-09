@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.18
+
+### Features
+- Add New folder creation inside the Working directory picker so existing-folder launches can create and select a directory without leaving the modal.
+
 ## 0.22.15
 
 ### Changed
