@@ -7,6 +7,7 @@ import { TerminalResizeDebouncer } from './TerminalResizeDebouncer.js';
 import { XtermTerminal } from './XtermTerminal.js';
 
 const REMOTE_INPUT_FLUSH_MS = 12;
+const TERMINAL_CONTROL_RE = /[\x00-\x1f\x7f-\x9f]/;
 
 export class TerminalInstance {
   constructor({ terminalId, cliType, onDisplaced }) {
@@ -365,6 +366,21 @@ export class TerminalInstance {
       this._sendFrame({ type: 'input', data });
       return;
     }
+
+    // Only coalesce ordinary typed text. xterm also emits terminal-protocol
+    // responses through onData (focus reports, device attributes, OSC color
+    // replies, etc.). Combining independently generated responses into one
+    // ConPTY write can make interactive CLIs treat the tail as literal input,
+    // which shows up in the composer as junk such as `[?1;2c` or
+    // `]11;rgb:...`. Flush text first, then preserve each control-bearing
+    // response as its own write. Bracketed paste already arrives as one
+    // control-bearing payload and remains atomic here.
+    if (TERMINAL_CONTROL_RE.test(data)) {
+      this._flushInput();
+      this._sendFrame({ type: 'input', data });
+      return;
+    }
+
     this.pendingInput += data;
     if (this.inputFlushTimer !== null) return;
     this.inputFlushTimer = setTimeout(() => {

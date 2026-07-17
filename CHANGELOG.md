@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.19
+
+### Fixes
+- Keep remote terminal protocol responses in separate PTY writes so focus, color, and device-attribute replies are not mistaken for user input when opening or launching a session.
+
 ## 0.22.18
 
 ### Features
