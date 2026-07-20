@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.24
+
+### Features
+- Add npm and GitHub icons to the Settings update-source selector so the two release channels are easier to distinguish.
+
 ## 0.22.23
 
 ### Fixes

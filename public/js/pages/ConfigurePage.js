@@ -24,7 +24,7 @@ import { Card } from '../components/Card.js';
 import { PageTitleBar } from '../components/PageTitleBar.js';
 import { EntityFormModal } from '../components/EntityFormModal.js';
 import { useDragSort } from '../components/useDragSort.js';
-import { IconPlus, IconPencil, IconClose, IconTerminal, IconFolder, IconBranch, IconRefresh, IconChevronUp, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor, IconSun, IconMoon, IconMonitor } from '../icons.js';
+import { IconPlus, IconPencil, IconClose, IconTerminal, IconFolder, IconBranch, IconRefresh, IconChevronUp, IconChevronDown, IconForCliType, IconClaudeColor, IconCodexColor, IconCopilotColor, IconSun, IconMoon, IconMonitor, IconNpm, IconGithub } from '../icons.js';
 import { parseArgs, formatArgs } from '../util.js';
 
 // Tokenize the free-form args fields into string[] before they hit
@@ -202,13 +202,14 @@ export function ConfigurePage() {
           <span class="label">Update source</span>
           <div class="seg" role="group" aria-label="Update source">
             ${[
-              { id: 'npm', label: 'npm' },
-              { id: 'github', label: 'GitHub Release' },
+              { id: 'npm', label: 'npm', icon: IconNpm },
+              { id: 'github', label: 'GitHub Release', icon: IconGithub },
             ].map((o) => html`
               <button key=${o.id} type="button"
                       class=${`seg-btn${general.updateSource === o.id ? ' is-active' : ''}`}
                       aria-pressed=${general.updateSource === o.id}
                       onClick=${() => saveGeneral({ updateSource: o.id })}>
+                <${o.icon} />
                 <span>${o.label}</span>
               </button>`)}
           </div>
