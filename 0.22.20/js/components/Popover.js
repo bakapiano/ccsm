@@ -14,26 +14,31 @@ import { html } from '../html.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 
-export function Popover({ anchor, onClose, align = 'left', width, children }) {
+export function Popover({ anchor, point, onClose, align = 'left', width, children }) {
   const panelRef = useRef(null);
   const [pos, setPos] = useState({ top: 0, left: 0, width: width || 320 });
 
   useLayoutEffect(() => {
     const a = anchor && anchor.current;
-    if (!a) return;
-    const rect = a.getBoundingClientRect();
-    const w = width || Math.max(rect.width, 320);
-    let left = align === 'right' ? rect.right - w : rect.left;
+    if (!a && !point) return;
+    const rect = a?.getBoundingClientRect();
+    const w = Math.min(width || Math.max(rect?.width || 0, 320), window.innerWidth - 16);
+    let left = point?.x ?? (align === 'right' ? rect.right - w : rect.left);
     // Clamp to viewport with 8px margin.
     left = Math.max(8, Math.min(window.innerWidth - w - 8, left));
-    const top = rect.bottom + 6;
+    let top = point?.y ?? (rect.bottom + 6);
+    const panelHeight = panelRef.current?.getBoundingClientRect().height || 0;
+    if (top + panelHeight > window.innerHeight - 8) {
+      top = point ? point.y - panelHeight : rect.top - panelHeight - 6;
+    }
+    top = Math.max(8, Math.min(window.innerHeight - panelHeight - 8, top));
     setPos({ top, left, width: w });
-  }, [anchor, align, width]);
+  }, [anchor, point?.x, point?.y, align, width]);
 
   useEffect(() => {
     const onDown = (ev) => {
       if (panelRef.current?.contains(ev.target)) return;
-      if (anchor.current?.contains(ev.target)) return;
+      if (anchor?.current?.contains?.(ev.target)) return;
       onClose?.();
     };
     const onKey = (ev) => { if (ev.key === 'Escape') onClose?.(); };

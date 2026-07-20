@@ -1,6 +1,6 @@
 // Sessions page · the main pane. Shows the terminal for the currently
 // selected session (activeSessionId), with a thin header providing
-// session metadata + a session-tabs strip (future multi-tab support)
+// session metadata + an editor-style session-tabs strip
 // and a kebab menu top-right for per-session actions. When a session is
 // selected but not running we auto-resume it — no manual button.
 
@@ -28,13 +28,66 @@ import { useDragSort } from '../components/useDragSort.js';
 import { IconMoreVert, IconPencil, IconClose, IconPlus, IconForCliType, IconTerminal, IconExternal, IconPlay, IconStop } from '../icons.js';
 import { fmtAgo } from '../util.js';
 
-function SessionTabs({ activeId, openSessions, onActivate, onClose, onReorder, onNew, kebab }) {
+function TabContextMenu({ context, openIds, onDismiss, onCloseTab, onCloseOthers, onCloseToRight, onCloseAll }) {
+  if (!context || !openIds.includes(context.sessionId)) return null;
+  const id = context.sessionId;
+  const index = openIds.indexOf(id);
+  const run = (action) => () => {
+    onDismiss();
+    action();
+  };
+  return html`
+    <${Popover} point=${context} width=${210} onClose=${onDismiss}>
+      <div class="session-menu" role="menu" aria-label="Tab actions">
+        <button class="session-menu-item" role="menuitem"
+                onClick=${run(() => onCloseTab(id))}>
+          Close
+        </button>
+        <button class="session-menu-item" role="menuitem"
+                disabled=${openIds.length <= 1}
+                onClick=${run(() => onCloseOthers(id))}>
+          Close Others
+        </button>
+        <button class="session-menu-item" role="menuitem"
+                disabled=${index === openIds.length - 1}
+                onClick=${run(() => onCloseToRight(id))}>
+          Close to the Right
+        </button>
+        <div class="session-menu-separator" role="separator"></div>
+        <button class="session-menu-item" role="menuitem"
+                onClick=${run(onCloseAll)}>
+          Close All
+        </button>
+      </div>
+    </${Popover}>`;
+}
+
+function SessionTabs({
+  activeId,
+  openSessions,
+  onActivate,
+  onClose,
+  onCloseOthers,
+  onCloseToRight,
+  onCloseAll,
+  onReorder,
+  onNew,
+  kebab,
+}) {
+  const [contextMenu, setContextMenu] = useState(null);
+  const activeTabRef = useRef(null);
   const active = activeId ? sessions.value.find((s) => s.id === activeId) : null;
   const base = Array.isArray(openSessions) ? openSessions : [];
   const open = active && !base.some((s) => s.id === active.id)
     ? [...base, active]
     : base;
-  const dnd = useDragSort(open.map((s) => s.id), onReorder);
+  const openIds = open.map((s) => s.id);
+  const dnd = useDragSort(openIds, onReorder);
+
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeId]);
+
   if (!open.length) return null;
   return html`
     <div class="session-tabs" role="tablist">
@@ -55,6 +108,7 @@ function SessionTabs({ activeId, openSessions, onActivate, onClose, onReorder, o
           };
           return html`
             <div key=${s.id}
+                 ref=${isActive ? activeTabRef : null}
                  role="tab"
                  aria-selected=${isActive}
                  aria-label=${`${t}, ${statusText}`}
@@ -63,6 +117,16 @@ function SessionTabs({ activeId, openSessions, onActivate, onClose, onReorder, o
                  data-session-id=${s.id}
                  title=${`${t} · ${statusText} · ${s.cwd}`}
                  onKeyDown=${onKeyDown}
+                 onContextMenu=${(ev) => {
+                   ev.preventDefault();
+                   ev.stopPropagation();
+                   const rect = ev.currentTarget.getBoundingClientRect();
+                   setContextMenu({
+                     sessionId: s.id,
+                     x: ev.clientX || (rect.left + Math.min(rect.width / 2, 24)),
+                     y: ev.clientY || rect.bottom,
+                   });
+                 }}
                  ...${dnd.rowProps(s.id)}>
               <div class="session-tab-main"
                    onClick=${() => onActivate(s.id)}
@@ -89,7 +153,15 @@ function SessionTabs({ activeId, openSessions, onActivate, onClose, onReorder, o
         </button> */ null}
       </div>
       ${kebab ? html`<div class="session-tabs-right">${kebab}</div>` : null}
-    </div>`;
+    </div>
+    <${TabContextMenu}
+      context=${contextMenu}
+      openIds=${openIds}
+      onDismiss=${() => setContextMenu(null)}
+      onCloseTab=${onClose}
+      onCloseOthers=${onCloseOthers}
+      onCloseToRight=${onCloseToRight}
+      onCloseAll=${onCloseAll} />`;
 }
 
 function SessionMenu({ session, switchableClis, onRename, onDelete, onOpenEditor, onResumePicker, onSwitchCli, busy }) {
@@ -242,6 +314,26 @@ export function SessionsPage() {
     }
   };
 
+  const onCloseOtherTabs = (sid) => {
+    if (!tabSessions.some((s) => s.id === sid)) return;
+    setOpenSessionTabs([sid]);
+    if (sid !== session.id) selectSession(sid);
+  };
+
+  const onCloseTabsToRight = (sid) => {
+    const index = tabSessions.findIndex((s) => s.id === sid);
+    if (index < 0) return;
+    const remaining = tabSessions.slice(0, index + 1);
+    setOpenSessionTabs(remaining.map((s) => s.id));
+    if (!remaining.some((s) => s.id === session.id)) selectSession(sid);
+  };
+
+  const onCloseAllTabs = () => {
+    setOpenSessionTabs([]);
+    clearActiveSession();
+    selectTab('launch');
+  };
+
   const onReorderTabs = (orderedIds) => {
     const existingIds = new Set(list.map((s) => s.id));
     const nextIds = [];
@@ -359,6 +451,9 @@ export function SessionsPage() {
       openSessions=${tabSessions}
       onActivate=${(sid) => selectSession(sid)}
       onClose=${onCloseTab}
+      onCloseOthers=${onCloseOtherTabs}
+      onCloseToRight=${onCloseTabsToRight}
+      onCloseAll=${onCloseAllTabs}
       onReorder=${onReorderTabs}
       onNew=${() => selectTab('launch')}
       kebab=${html`
