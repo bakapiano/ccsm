@@ -56,4 +56,6 @@ jobs:
             echo "expected exactly one npm tarball asset, found ${#assets[@]}" >&2
             exit 1
           fi
-          npm publish "${assets[0]}" --provenance --access public
+          # Prefix the relative tarball path with ./; otherwise npm treats
+          # `dist/foo.tgz` as GitHub shorthand (`github.com/dist/foo.tgz`).
+          npm publish "./${assets[0]}" --provenance --access public
