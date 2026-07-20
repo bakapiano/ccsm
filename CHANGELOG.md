@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.21
+
+### Features
+- Add a right-click context menu to session tabs with Close, Close Others, Close to the Right, and Close All actions.
+
 ## 0.22.20
 
 ### Fixes
