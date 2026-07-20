@@ -252,9 +252,8 @@
 }
 
 /* Session tabs · sits between the page-title-bar and the session-pane.
-   One row of small tab buttons; the active one has a darker bg + accent
-   underline. Last child is a "+" button that bounces to /launch. The
-   strip is full-bleed (matches .session-pane horizontal extents). */
+   Editor-style open tabs in selection order. The strip scrolls horizontally
+   once tabs can no longer retain a useful label width. */
 .session-tabs {
   display: flex;
   align-items: stretch;
@@ -276,8 +275,11 @@
   gap: 0;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
+.session-tabs-list::-webkit-scrollbar { display: none; }
 .session-tabs-right {
   display: flex;
   align-items: center;
@@ -305,8 +307,9 @@
   font-size: 12px;
   color: var(--term-tab-text);
   cursor: pointer;
+  flex: 0 0 auto;
   max-width: 200px;
-  min-width: 0;
+  min-width: 88px;
   transition: background-color .12s, color .12s;
   user-select: none;
   position: relative;
