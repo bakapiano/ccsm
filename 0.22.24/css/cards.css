@@ -1,0 +1,183 @@
+/* Card surfaces · head with fold toggle · body · title with icon */
+
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  transition: box-shadow .2s ease, border-color .2s ease, transform .2s ease;
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border);
+}
+
+.card-head {
+  padding: var(--s-4) var(--s-6) var(--s-3);
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--s-3);
+}
+/* Whole header clickable to fold, only when card is foldable */
+.card[data-fold-key] .card-head {
+  cursor: pointer;
+  user-select: none;
+  transition: background .12s ease;
+}
+.card[data-fold-key] .card-head:hover {
+  background: var(--bg);
+}
+.card[data-collapsed] .card-head { border-bottom-color: transparent; }
+.card-titles { flex: 1; min-width: 0; }
+
+.card-fold {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  margin: 0;
+  cursor: pointer;
+  color: var(--ink-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color .12s ease, background .12s ease, transform .25s cubic-bezier(.4, 0, .2, 1);
+  line-height: 0;
+  flex: 0 0 auto;
+}
+.card-fold:hover {
+  color: var(--ink);
+  background: var(--bg);
+}
+.card[data-collapsed] .card-fold { transform: rotate(-90deg); }
+.card[data-collapsed] .card-body { display: none; }
+
+.card-title {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.card-title .title-icon {
+  color: var(--ink-mid);
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.card-title .title-icon-after {
+  margin-right: 0;
+  margin-left: 6px;
+  vertical-align: -1px;
+}
+.card-meta {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  font-family: var(--body);
+}
+.card-meta code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-mid);
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-soft);
+}
+
+.card-body { padding: var(--s-5) var(--s-6); }
+.card-body-flush { padding: 0; }
+
+/* ── About page ── */
+.about-block { display: flex; flex-direction: column; gap: var(--s-5); max-width: 640px; }
+.about-hero { display: flex; gap: var(--s-4); align-items: center; }
+.about-mark { display: inline-flex; }
+.about-mark svg { width: 48px; height: 48px; }
+.about-name {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  line-height: 1.1;
+}
+.about-version {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-left: 6px;
+  font-weight: 400;
+}
+.about-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.about-version-line {
+  font-size: 13px;
+  color: var(--ink);
+}
+.about-update-line {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--ink-mid);
+  font-weight: 500;
+}
+.about-version-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.muted-text {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+.about-tagline {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ink-mid);
+}
+.about-tagline code {
+  font-size: 11px;
+  padding: 1px 4px;
+}
+.about-copy {
+  font-size: 13.5px;
+  color: var(--ink-mid);
+  line-height: 1.6;
+  max-width: 560px;
+}
+.about-links {
+  display: flex;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.about-links .action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.about-meta {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px var(--s-4);
+  font-size: 12.5px;
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--border-soft);
+}
+.about-meta dt {
+  color: var(--ink-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10.5px;
+  padding-top: 2px;
+}
+.about-meta dd { color: var(--ink); }
