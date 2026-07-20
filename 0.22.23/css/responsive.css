@@ -1,0 +1,176 @@
+/* Narrow viewports: force-collapse sidebar, single-col config grid */
+
+/* Narrow desktop / tablet viewports: stack the page-head, single-column
+   config grids. Sidebar stays at full width — user can still toggle it
+   manually via the collapse button. Phone-sized (≤ 640px) gets the FAB
+   drawer treatment below. */
+@media (max-width: 900px) {
+  .main { padding: 0 var(--s-4); }
+  .page-head { flex-direction: column; gap: var(--s-3); }
+  .config-grid { grid-template-columns: 1fr; }
+}
+
+/* Phone viewports (≤ 640px): sidebar disappears entirely from the grid
+   layout; a circular floating button bottom-left toggles a full-screen
+   drawer that re-mounts the sidebar over everything else. */
+@media (max-width: 640px) {
+  /* Shrink the whole app to the visible area ABOVE the soft keyboard.
+     --app-vh is the visualViewport height (main.js); the layout-viewport
+     100vh never shrinks for the keyboard, which left the terminal's bottom
+     rows hidden behind it. 100dvh is the fallback before the JS runs. */
+  .app.is-mobile { grid-template-columns: 1fr !important; height: var(--app-vh, 100dvh); }
+  /* Keyboard up: keep the terminal's content above the floating key bar
+     (TerminalKeyBar, ~50px). Only the terminal pane needs this — other
+     pages have their own scroll padding. */
+  body.kb-open .app.is-mobile .session-pane-body { padding-bottom: 50px; }
+  .app.is-mobile .sidebar {
+    /* Collapsed (drawer closed): out of the flow + invisible. */
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    width: 100%;
+    height: 100%;
+    transform: translateX(-100%);
+    transition: transform .22s cubic-bezier(.4, 0, .2, 1);
+    padding: var(--s-3);
+    background: var(--bg);
+    border-right: 0;
+    overflow-y: auto;
+  }
+  .app.is-mobile.drawer-open .sidebar { transform: translateX(0); }
+  /* Brand + nav labels come BACK on mobile — they were hidden by the
+     900px collapse rule above. */
+  .app.is-mobile .brand-name,
+  .app.is-mobile .nav-label,
+  .app.is-mobile .nav-badge { opacity: 1; pointer-events: auto; }
+  /* Sidebar drag handle isn't useful at full-screen; close button isn't
+     either since the FAB doubles as a toggle. */
+  .app.is-mobile .sidebar [aria-label="resize sidebar"] { display: none; }
+  .app.is-mobile .collapse-toggle { display: none; }
+
+  /* Main pane occupies full width — no sidebar gutter. */
+  .app.is-mobile .main { padding: 0 var(--s-3); }
+  /* Session pane edge-to-edge margin needs to match the new padding. */
+  .app.is-mobile .session-pane { margin: 0 calc(-1 * var(--s-3)); }
+
+  /* The bottom-left FAB (52px circle + 16px margin) overlaps content
+     near the bottom-left corner. Reserve room inside scroll containers
+     so the last button / row isn't trapped under it. */
+  .app.is-mobile .settings-scroll { padding-bottom: 80px; }
+  .app.is-mobile .remote-page     { padding-bottom: 80px; }
+  /* Launch page is its own block (no scroll wrapper) — push it up too
+     so the Launch button doesn't end up under the FAB. */
+  .app.is-mobile [data-panel="launch"]   { padding-bottom: 80px; }
+  .app.is-mobile [data-panel="about"]    { padding-bottom: 80px; }
+  /* Sessions terminal: the .session-actions footer / tabs at top means
+     the FAB sits over the terminal corner — leave it; the user can
+     scroll the terminal independently. */
+
+  /* Touch scrolling: drive xterm's OWN scrollable .xterm-viewport natively
+     so finger drags get real momentum and never "drop" mid-flick. A
+     JS-intercepted scroll can't: the moment Chrome's compositor decides the
+     drag is a vertical pan it cancels the touch sequence, so the handler
+     only ever sees the opening frames — the "滑一点就断触" symptom. The
+     catch is that the .xterm-screen layer (DOM rows on mobile) sits ON TOP
+     of the viewport and swallows every touch; only the thin scrollbar strip
+     at the right edge reached the viewport, which is exactly the
+     "中间滑不动、侧边能滑" report. Make the screen transparent to pointers so
+     the drag lands on the viewport underneath; pan-y marks it a vertical
+     scroller so the compositor scrolls it directly. (Tap-to-focus is then
+     re-added in JS — see TerminalView — since taps no longer reach xterm's
+     own focus path.) */
+  .app.is-mobile .terminal-host .xterm-screen { pointer-events: none; }
+  .app.is-mobile .terminal-host .xterm-viewport { touch-action: pan-y; }
+
+  /* Long inline code (URLs, paths) in the About / Remote bodies break
+     out of card edges on a narrow viewport. Let them wrap on any
+     character instead of stretching the line. */
+  .settings-section code,
+  .card code,
+  .remote-fact code {
+    word-break: break-all;
+    white-space: normal;
+  }
+
+  /* iOS Safari + Edge auto-zoom the viewport when the user taps an
+     <input>/<textarea> whose font-size is < 16px. Defensive bump on
+     real form inputs. NOTE: we deliberately do NOT touch
+     .xterm-helper-textarea here — xterm.js measures cell dimensions
+     off that element's computed font, so forcing it to 16px makes the
+     terminal render every glyph at ~16px regardless of the fontSize
+     option we passed in. (TerminalView intentionally picks 11px on
+     phones for ~50 cols.) On real iPhone the helper textarea anti-
+     zoom is handled by the viewport meta tag instead — see
+     public/index.html's `maximum-scale=1.0`. */
+  .input,
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="number"],
+  input[type="password"],
+  input[type="url"],
+  textarea,
+  select { font-size: 16px !important; }
+}
+
+/* FAB + backdrop · sit above page content but BELOW dialogs. The
+   `left` and `bottom` inline styles come from MobileNavFab.js (drag-
+   persisted), so we don't set defaults here — the component seeds
+   them on mount. `touch-action: none` stops the browser from also
+   scrolling the page while the user is dragging the FAB. */
+.mobile-nav-fab {
+  position: fixed;
+  z-index: 220;                 /* above the terminal key bar (215) */
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 10px 24px -6px rgba(0,0,0,.28),
+    0 2px 4px rgba(0,0,0,.10);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: box-shadow .15s, background .15s, transform .18s ease;
+}
+/* When the soft keyboard (and the terminal key bar that floats above it)
+   is up, lift the FAB clear of the key bar so they don't overlap. The
+   key bar is ~50px tall; nudge up a bit more for breathing room. */
+body.kb-open .mobile-nav-fab { transform: translateY(-60px); }
+/* No translateY on hover — would fight the inline left/bottom we set
+   on every pointermove during drag, making the FAB jitter under the
+   finger as :hover toggles on/off. Background-only hover for desktop
+   pointers; touch never matches :hover. */
+.mobile-nav-fab:hover  { background: var(--bg); }
+.mobile-nav-fab:active { cursor: grabbing; }
+/* Suppress the browser's default focus ring + tap highlight — on touch
+   the ring lingers after every tap and reads as a stuck "selected"
+   state on the FAB. We're not removing all affordance: the icon swap
+   (hamburger ↔ X) + the is-open border change still communicate state.
+   :focus-visible is also dropped here since the FAB is touch-first. */
+.mobile-nav-fab:focus,
+.mobile-nav-fab:focus-visible { outline: none; }
+.mobile-nav-fab { -webkit-tap-highlight-color: transparent; }
+.mobile-nav-fab svg { width: 22px; height: 22px; stroke-width: 2; pointer-events: none; }
+/* Open state stays the same paper white — only the icon swaps to X.
+   Keeping the colour consistent reads as "same button, different
+   mode" instead of two different controls. */
+.mobile-nav-fab.is-open {
+  background: var(--bg-elev);
+  color: var(--ink);
+  border-color: var(--border-strong);
+}
+
+.mobile-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;     /* below sidebar (200) + fab (220), above content */
+  background: rgba(26, 24, 21, 0.45);
+  backdrop-filter: blur(2px);
+  animation: panel-in .15s ease-out;
+}
