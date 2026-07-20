@@ -118,14 +118,20 @@ us (`<prefix>/ccsm.cmd` from `npm config get prefix`).
 
 ## In-app upgrade
 
-About page surfaces the installed version, runs
-`npm view --global @bakapiano/ccsm@latest version` (cached 30 min) so the
-check honors the user's global npm source, and offers an **Upgrade** button
-when newer.
-`POST /api/upgrade` spawns `npm i -g @bakapiano/ccsm@latest` detached,
-then on success spawns a fresh `ccsm` (also detached) and
-gracefulShutdowns. The OfflineBanner appears briefly; the router then
-picks up the new version on its next probe.
+Settings → General persists `config.updateSource` (`npm` by default,
+or `github`). Version results are cached per source for 30 minutes:
+
+- `npm` runs `npm view --global @bakapiano/ccsm@latest version`, honoring
+  the user's global npm source, proxy, and credentials. Upgrade installs
+  `@bakapiano/ccsm@<exact-version>`.
+- `github` reads the latest published GitHub Release and requires its
+  `bakapiano-ccsm-<version>.tgz` asset. Upgrade installs that exact HTTPS
+  asset. Dependencies still resolve through the user's npm configuration.
+
+There is intentionally no automatic fallback: the selected source owns
+both the check and install, and source-specific failures surface in the UI.
+On success the detached helper spawns a fresh `ccsm` and the current server
+gracefulShutdowns. The router picks up the new version on its next probe.
 
 The `target` field is regex-validated (`/^[a-z0-9.+\-^~]+$/i`) before
 the spawn — npm install doesn't shell out, but defends against argv
@@ -315,8 +321,8 @@ allows `https://bakapiano.github.io` only — never `*`.
 | GET | `/api/folders` · POST `/api/folders` · PUT/DELETE `/api/folders/:id` · POST `/api/folders/reorder` | folder CRUD |
 | GET | `/api/workspaces` | workspaces under workDir with repo clone status + in-use flag |
 | GET | `/api/browse` | directory browser for the Launch page workdir picker |
-| GET | `/api/version` | `{ current, latest, updateAvailable, fetchedAt, cached, error? }` (global npm source cached 30 min, `?refresh=1` to bust) |
-| POST | `/api/upgrade` | body `{target?}` — `npm i -g @bakapiano/ccsm@<target>` then self-restart |
+| GET | `/api/version` | `{ current, latest, updateAvailable, sourceBehind, fetchedAt, cached, source, error? }` (selected source cached 30 min, `?refresh=1` to bust) |
+| POST | `/api/upgrade` | body `{target?}` — install the exact version from configured npm/GitHub source, then self-restart |
 | GET | `/api/capabilities` | `{ webTerminal: bool, ... }` for frontend feature gating |
 | GET | `/api/health` | `{ ok, pid, version, name }` — used by router probe + heartbeat |
 | POST | `/api/heartbeat` | called every 10s by the frontend; feeds lifecycle decisions |
@@ -445,8 +451,9 @@ because "the fix is ready". Wait for the user to say so. The instinct
 to ship is wrong here — a half-baked release on the public npm registry
 is much worse than a few minutes of waiting.
 
-Three artifacts ship per release: a git tag, a GitHub Release, and an
-npm publish. The whole thing is CI-driven — you never `npm publish`
+Each release ships a git tag, versioned Pages frontend, GitHub Release
+tarball, and npm package. The GitHub and npm channels use the exact same
+`.tgz` bytes. The whole thing is CI-driven — you never `npm publish`
 locally — but it requires you to drive three steps in order:
 
 1. **Commit + bump + push (local).** Stage everything, write a release
@@ -475,13 +482,20 @@ locally — but it requires you to drive three steps in order:
    - `Deploy frontend to GitHub Pages` → publishes `pages-root/` → `/`
      and `public/` → `/<X.Y.Z>/` on `gh-pages`. Old `/<X.Y.Z>/`
      subdirs stay forever (`keep_files: true`).
-   - `Draft GitHub Release on tag push` → creates a **draft** release
-     for `vX.Y.Z`.
+   - `Draft GitHub Release on tag push` → runs `npm pack`, writes a SHA-256
+     checksum, and attaches both to a **draft** release for `vX.Y.Z`:
+     `bakapiano-ccsm-X.Y.Z.tgz` and `.tgz.sha256`.
 
    ```powershell
    gh run list --repo bakapiano/ccsm --limit 10
    gh run watch <deploy-pages-run-id> --exit-status
    gh run watch <release-draft-run-id> --exit-status
+   ```
+
+   Before publishing, verify the assets are present and correctly named:
+
+   ```powershell
+   gh release view vX.Y.Z --json isDraft,assets,url
    ```
 
    The Pages deploy workflow can succeed while GitHub's built-in
@@ -519,8 +533,9 @@ locally — but it requires you to drive three steps in order:
    ```
 
    This flips the draft to "published", which fires the third workflow
-   — `Publish to npm` — using the `NPM_TOKEN` repo secret with
-   provenance. The runner needs ~30s; verify with `gh` and npm:
+   — `Publish to npm`. It downloads the Release `.tgz` and publishes that
+   exact asset using the `NPM_TOKEN` repo secret with provenance. The
+   runner needs ~30s; verify with `gh` and npm:
 
    ```powershell
    gh run list --repo bakapiano/ccsm --workflow "Publish to npm" --limit 5

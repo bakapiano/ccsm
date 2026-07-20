@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.22
+
+### Features
+- Add an explicit Settings choice between the global npm source and GitHub Release assets for update checks and installs, without automatic fallback.
+- Attach the packed npm tarball and checksum to each GitHub Release and publish that same tarball to npm.
+
 ## 0.22.21
 
 ### Features

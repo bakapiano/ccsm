@@ -154,6 +154,7 @@ export function ConfigurePage() {
         workDir: cfg.workDir,
         editor: cfg.editor,
         resumeMode: cfg.resumeMode === 'picker' ? 'picker' : 'latest',
+        updateSource: cfg.updateSource === 'github' ? 'github' : 'npm',
       });
     }
   }, [cfg]);
@@ -169,6 +170,7 @@ export function ConfigurePage() {
         workDir: (merged.workDir || '').trim(),
         editor: (merged.editor || '').trim(),
         resumeMode: merged.resumeMode === 'picker' ? 'picker' : 'latest',
+        updateSource: merged.updateSource === 'github' ? 'github' : 'npm',
       });
       config.value = saved;
       setToast('saved');
@@ -194,7 +196,23 @@ export function ConfigurePage() {
         </div>
         <div class="field">
           <span class="label">Version</span>
-          <${VersionField} />
+          <${VersionField} key=${cfg.updateSource} source=${cfg.updateSource} />
+        </div>
+        <div class="field">
+          <span class="label">Update source</span>
+          <div class="seg" role="group" aria-label="Update source">
+            ${[
+              { id: 'npm', label: 'npm' },
+              { id: 'github', label: 'GitHub Release' },
+            ].map((o) => html`
+              <button key=${o.id} type="button"
+                      class=${`seg-btn${general.updateSource === o.id ? ' is-active' : ''}`}
+                      aria-pressed=${general.updateSource === o.id}
+                      onClick=${() => saveGeneral({ updateSource: o.id })}>
+                <span>${o.label}</span>
+              </button>`)}
+          </div>
+          <span class="hint">npm honors your global npm configuration. GitHub installs the release tarball. ccsm never falls back automatically.</span>
         </div>
         <div class="field">
           <span class="label">Backend</span>
@@ -494,7 +512,7 @@ const PRESETS = [
   { name: 'Crimson',       hex: '#b73f3f' },
 ];
 
-function VersionField() {
+function VersionField({ source = 'npm' }) {
   const [info, setInfo] = useState(null);
   const [checking, setChecking] = useState(true);
   const [upgrading, setUpgrading] = useState(false);
@@ -510,13 +528,16 @@ function VersionField() {
       setChecking(false);
     }
   };
-  useEffect(() => { refresh(false); }, []);
+  useEffect(() => {
+    setInfo(null);
+    refresh(false);
+  }, [source]);
 
   const onUpgrade = async () => {
-    if (!info?.updateAvailable) return;
+    if (!info?.updateAvailable || info.source !== source) return;
     setUpgrading(true);
     try {
-      const r = await api('POST', '/api/upgrade', { target: 'latest' });
+      const r = await api('POST', '/api/upgrade', { target: info.latest });
       setToast(`upgrading to v${info.latest} · backend will restart`);
       if (r?.helperUrl) {
         setTimeout(() => { location.href = r.helperUrl; }, 300);
@@ -532,6 +553,9 @@ function VersionField() {
   const current = info?.current || serverHealth.value.version || '';
   const latest  = info?.latest;
   const updateAvailable = !!info?.updateAvailable;
+  const sourceBehind = !!info?.sourceBehind;
+  const effectiveSource = info?.source || source;
+  const sourceLabel = effectiveSource === 'github' ? 'GitHub Release' : 'global npm source';
 
   return html`
     <div class=${`version-card${updateAvailable ? ' has-update' : info?.error ? ' has-error' : ''}`}>
@@ -540,22 +564,24 @@ function VersionField() {
           <span class="version-card-label">Installed</span>
           <span class="version-card-version">v${current || '?'}</span>
           ${!updateAvailable && !info?.error && latest ? html`
-            <span class="version-card-badge">Latest</span>
+            <span class="version-card-badge">${sourceBehind ? 'Ahead' : 'Latest'}</span>
           ` : null}
         </div>
         <div class="version-card-meta">
           ${info?.error
-            ? html`<span class="version-card-error">Couldn't reach npm registry · <code>${info.error}</code></span>`
+            ? html`<span class="version-card-error">Couldn't check ${sourceLabel} · <code>${info.error}</code></span>`
+            : sourceBehind
+              ? html`Selected source reports <span class="mono">v${latest}</span>; installed version is newer.`
             : updateAvailable
-              ? html`Update available · <span class="mono">v${latest}</span>`
+              ? html`Update available from ${sourceLabel} · <span class="mono">v${latest}</span>`
               : latest
-                ? `You're on the latest release. Checks npm registry (cached 30 min).`
-                : 'Checks npm registry (cached 30 min).'}
+                ? `You're on the latest release. Checks ${sourceLabel} (cached 30 min).`
+                : `Checks ${sourceLabel} (cached 30 min).`}
         </div>
       </div>
       <div class="version-card-actions">
         ${updateAvailable ? html`
-          <button class="action primary" disabled=${upgrading} onClick=${onUpgrade}>
+          <button class="action primary" disabled=${checking || upgrading} onClick=${onUpgrade}>
             ${upgrading ? 'Upgrading…' : `Upgrade to v${latest}`}
           </button>
         ` : null}

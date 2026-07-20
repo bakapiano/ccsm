@@ -1,10 +1,11 @@
 name: Publish to npm
 
 # Triggered when a GitHub Release is published. Workflow:
-#   1. local:   npm version minor -m "release v%s" && git push --follow-tags
-#   2. github:  Releases → Draft a new release → pick the new tag → publish
-#   3. here:    builds, publishes to npm with provenance, attaches a sigstore
-#               attestation that npm displays as a "Provenance" badge.
+#   1. local:   npm --prefix . version patch -m "v%s", then push main + tag
+#   2. github:  tag workflow creates a draft Release + packed tarball; publish it
+#   3. here:    downloads the exact .tgz attached to that Release and
+#               publishes it to npm with provenance. GitHub and npm thus
+#               serve the same package bytes.
 #
 # Provenance requires `id-token: write` (GitHub OIDC) and npm CLI ≥ 9.5.
 # It binds the published tarball to *this* commit + workflow run, so users
@@ -13,7 +14,12 @@ name: Publish to npm
 on:
   release:
     types: [published]
-  workflow_dispatch:   # manual trigger for retries / dry runs
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag whose tarball should be published
+        required: true
+        type: string
 
 jobs:
   publish:
@@ -23,18 +29,31 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # No `npm install` — `npm publish` just packs the `files` listed in
-      # package.json into a tarball and uploads. It doesn't execute our
-      # code on the runner, so we don't need deps. Skipping install also
-      # sidesteps the `"os": ["win32"]` runtime gate which would reject
-      # `npm install` on this Linux runner.
-      - name: Publish
-        run: npm publish --provenance --access public
+      # No `npm install` — the draft-release workflow already packed the
+      # package, and installing on this Linux runner would hit the package's
+      # `"os": ["win32"]` runtime gate.
+      - name: Download GitHub Release tarball and publish it
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" \
+            --pattern 'bakapiano-ccsm-*.tgz' \
+            --dir dist
+          mapfile -t assets < <(find dist -maxdepth 1 -type f -name 'bakapiano-ccsm-*.tgz')
+          if [ "${#assets[@]}" -ne 1 ]; then
+            echo "expected exactly one npm tarball asset, found ${#assets[@]}" >&2
+            exit 1
+          fi
+          npm publish "${assets[0]}" --provenance --access public

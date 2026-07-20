@@ -1674,21 +1674,31 @@ app.post('/api/restart', asyncH(async (_req, res) => {
 }));
 
 // ---- version / upgrade ----
-// `/api/version` reports the installed version (= pkg.version) and, if
-// reachable, the latest version visible through the user's global npm
-// configuration. The result is cached for 30 minutes in memory so the
-// AboutPage poll doesn't hit the registry on every render.
+// `/api/version` reports the installed version (= pkg.version) and the
+// latest release visible through the explicitly configured update source:
+// the user's global npm configuration OR a GitHub Release npm tarball.
+// Results are cached per source for 30 minutes in memory.
 //
-// `/api/upgrade` kicks off `npm i -g @bakapiano/ccsm@latest` as a
-// detached child. When the install completes, the child re-spawns `ccsm`
-// (also detached) so the launcher comes back up on the new version, and
-// the current server gracefulShutdowns. The frontend's OfflineBanner
-// covers the gap; the version router picks up the new version on the
-// next probe.
+// `/api/upgrade` always follows that same configured source. npm installs
+// the package spec; github installs the exact .tgz Release asset. There is
+// deliberately no automatic fallback between sources.
 const VERSION_CACHE_MS = 30 * 60_000;
 const VERSION_CHECK_TIMEOUT_MS = 10_000;
-let versionCache = null; // { latest, fetchedAt }
+const GITHUB_REPO = 'bakapiano/ccsm';
+const versionCache = new Map(); // source -> { latest, fetchedAt }
 let upgradeInFlight = false;
+
+function normalizeUpdateSource(value) {
+  return value === 'github' ? 'github' : 'npm';
+}
+
+function githubReleaseAssetName(version) {
+  return `bakapiano-ccsm-${version}.tgz`;
+}
+
+function githubReleaseAssetUrl(version) {
+  return `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${githubReleaseAssetName(version)}`;
+}
 
 async function fetchLatestFromNpm() {
   // Ask npm instead of fetching registry.npmjs.org directly. This makes
@@ -1751,6 +1761,43 @@ async function fetchLatestFromNpm() {
   });
 }
 
+async function fetchLatestFromGitHub() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), VERSION_CHECK_TIMEOUT_MS);
+  try {
+    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': `ccsm/${pkg.version}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      signal: ctrl.signal,
+    });
+    if (!response.ok) throw new Error(`GitHub Releases HTTP ${response.status}`);
+    const release = await response.json();
+    const latest = String(release.tag_name || '').replace(/^v/i, '');
+    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(latest)) {
+      throw new Error('GitHub latest release has an invalid version tag');
+    }
+    const assetName = githubReleaseAssetName(latest);
+    const hasAsset = Array.isArray(release.assets)
+      && release.assets.some((asset) => asset && asset.name === assetName);
+    if (!hasAsset) throw new Error(`GitHub Release is missing ${assetName}`);
+    return latest;
+  } catch (error) {
+    if (error && error.name === 'AbortError') {
+      throw new Error(`GitHub Releases timed out after ${VERSION_CHECK_TIMEOUT_MS / 1000}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function fetchLatestFromSource(source) {
+  return source === 'github' ? fetchLatestFromGitHub() : fetchLatestFromNpm();
+}
+
 function cmpSemver(a, b) {
   const pa = String(a || '').split('.').map(Number);
   const pb = String(b || '').split('.').map(Number);
@@ -1765,30 +1812,38 @@ function cmpSemver(a, b) {
 app.get('/api/version', asyncH(async (req, res) => {
   const force = String(req.query.refresh || '') === '1';
   const now = Date.now();
+  const source = normalizeUpdateSource((await loadConfig()).updateSource);
   // devMode: set when the server was launched from scripts/dev.js
   // (CCSM_DEV=1). Lets the About page render a "test upgrade flow"
   // button that re-installs to a sandbox prefix without affecting the
   // user's global ccsm install.
   const devMode = process.env.CCSM_DEV === '1';
-  if (!force && versionCache && (now - versionCache.fetchedAt) < VERSION_CACHE_MS) {
+  const cached = versionCache.get(source);
+  if (!force && cached && (now - cached.fetchedAt) < VERSION_CACHE_MS) {
+    const relation = cmpSemver(cached.latest, pkg.version);
     return res.json({
       current: pkg.version,
-      latest: versionCache.latest,
-      updateAvailable: cmpSemver(versionCache.latest, pkg.version) > 0,
-      fetchedAt: versionCache.fetchedAt,
+      latest: cached.latest,
+      updateAvailable: relation > 0,
+      sourceBehind: relation < 0,
+      fetchedAt: cached.fetchedAt,
       cached: true,
+      source,
       devMode,
     });
   }
   try {
-    const latest = await fetchLatestFromNpm();
-    versionCache = { latest, fetchedAt: now };
+    const latest = await fetchLatestFromSource(source);
+    versionCache.set(source, { latest, fetchedAt: now });
+    const relation = cmpSemver(latest, pkg.version);
     res.json({
       current: pkg.version,
       latest,
-      updateAvailable: cmpSemver(latest, pkg.version) > 0,
+      updateAvailable: relation > 0,
+      sourceBehind: relation < 0,
       fetchedAt: now,
       cached: false,
+      source,
       devMode,
     });
   } catch (e) {
@@ -1796,8 +1851,10 @@ app.get('/api/version', asyncH(async (req, res) => {
       current: pkg.version,
       latest: null,
       updateAvailable: false,
+      sourceBehind: false,
       fetchedAt: now,
       error: String(e.message || e),
+      source,
       devMode,
     });
   }
@@ -1808,12 +1865,19 @@ app.post('/api/upgrade', asyncH(async (req, res) => {
     return res.status(409).json({ error: 'upgrade already in progress' });
   }
   const body = req.body || {};
-  const target = String(body.target || 'latest');
+  const source = normalizeUpdateSource((await loadConfig()).updateSource);
+  let target = String(body.target || 'latest');
   // Refuse anything that doesn't look like a semver dist-tag or version
   // — defends against `;` etc. winding up in the spawn argv even though
   // we don't shell out.
   if (!/^[a-z0-9.+\-^~]+$/i.test(target)) {
     return res.status(400).json({ error: `invalid target: ${target}` });
+  }
+  if (source === 'github') {
+    if (target === 'latest') target = await fetchLatestFromGitHub();
+    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(target)) {
+      return res.status(400).json({ error: `GitHub update target must be an exact version: ${target}` });
+    }
   }
   // Optional sandbox install prefix (for testing without disturbing the
   // user's real global ccsm). Validated as a plain absolute path so it
@@ -1824,7 +1888,7 @@ app.post('/api/upgrade', asyncH(async (req, res) => {
   }
   const respawn = body.respawn === false ? '0' : '1';
   upgradeInFlight = true;
-  console.log(`[upgrade] target=${target}${installPrefix ? ` prefix=${installPrefix}` : ''}${respawn === '0' ? ' (no respawn)' : ''}`);
+  console.log(`[upgrade] source=${source} target=${target}${installPrefix ? ` prefix=${installPrefix}` : ''}${respawn === '0' ? ' (no respawn)' : ''}`);
 
   // The helper runs OUTSIDE the package dir so npm can rename it
   // without fighting open file handles. Copy the script to os.tmpdir()
@@ -1846,12 +1910,14 @@ app.post('/api/upgrade', asyncH(async (req, res) => {
   // hitting GH Pages (which doesn't know about port 7788).
   const redirectTo = frontendUrl || `http://localhost:${currentPort}/`;
 
-  const args = [helperTmp, target, String(currentPort), String(process.pid), installPrefix, respawn, redirectTo];
+  const args = [helperTmp, target, String(currentPort), String(process.pid), installPrefix, respawn, redirectTo, source];
 
   res.json({
     ok: true,
     started: true,
     target,
+    source,
+    packageUrl: source === 'github' ? githubReleaseAssetUrl(target) : null,
     helper: helperTmp,
     helperUrl: 'http://localhost:7779/',
     closeFrontend: false,

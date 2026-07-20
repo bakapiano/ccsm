@@ -42,8 +42,8 @@ that folder when you click it again.
   in the single selected repo or at the workspace root for zero/multiple
   repos. Or pick any existing folder via the file browser.
 - **Folders.** Drag sessions into named folders for organisation.
-- **In-app upgrade.** About page checks npm for newer versions of
-  ccsm and offers a one-click upgrade button. Backend self-restarts.
+- **In-app upgrade.** Settings checks the explicitly selected npm or
+  GitHub Release source, offers a one-click upgrade, and self-restarts.
 
 ## Install
 
@@ -58,6 +58,20 @@ This:
 
 `npx @bakapiano/ccsm` works too for a one-shot trial — the protocol
 still gets registered.
+
+### Update source
+
+In **Settings → General → Update source**, choose exactly one channel:
+
+- **npm** (default) uses your global npm configuration for both version
+  checks and the ccsm package install.
+- **GitHub Release** checks the latest published release and installs its
+  pre-packed `bakapiano-ccsm-X.Y.Z.tgz` asset. Package dependencies still
+  resolve through your npm configuration.
+
+ccsm never falls back automatically. If the selected source is unavailable
+or stale, the UI reports that source's error and leaves the installation
+unchanged.
 
 ## Use
 
@@ -91,6 +105,7 @@ terminal needed.
 | Work dir | `~/ccsm-workspaces` (each subdirectory holds one or more repo clones) |
 | Built-in CLIs | `claude`, `codex`, `copilot` — add your own via the **Configure** tab |
 | Resume behavior | `latest` by default; switch to `picker` in **Configure** |
+| Update source | `npm` by default; switch explicitly to `GitHub Release` in **Settings → General** |
 | Data dir | `~/.ccsm/` (override with `CCSM_HOME=<path>`) — survives upgrades and npx cache wipes |
 
 All of the above are editable through the **Configure** tab.

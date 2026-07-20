@@ -19,8 +19,9 @@
 //      frontend navigates to http://localhost:7779/ when it gets the
 //      upgrade response, so the user watches install progress live.
 //   4. Helper waits for the old port + pid to be gone (up to 30s).
-//   5. Helper runs `npm i -g @bakapiano/ccsm@<target>`, captures stdout +
-//      stderr line by line, pushes each line into the SSE stream.
+//   5. Helper runs npm i -g against either @bakapiano/ccsm@<target> or
+//      the exact GitHub Release .tgz asset selected by the server. It
+//      captures stdout + stderr line by line and pushes it into SSE.
 //   6. On success: spawn ccsm.cmd (which boots the new server on 7777),
 //      push a `done` SSE event with redirectTo=7777 so the UI navigates
 //      back. Keep the helper server alive for ~30s for late clients,
@@ -29,7 +30,8 @@
 //      can read the error + copy the log. Exits when the user clicks
 //      Close in the UI (POST /api/upgrade/dismiss) OR after 10 min.
 //
-// Argv: node upgrade-helper.js <target> <port> <pid> [installPrefix] [respawn=1|0]
+// Argv: node upgrade-helper.js <target> <port> <pid> [installPrefix]
+//       [respawn=1|0] [redirectTo] [source=npm|github]
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -48,6 +50,9 @@ const doRespawn = process.argv[6] !== '0';
 // prod, local apiUrl in dev). Fallback to localhost:oldPort/ so old
 // callers that don't pass anything still work.
 const redirectTo = process.argv[7] || `http://localhost:${oldPort}/`;
+const updateSource = process.argv[8] === 'github' ? 'github' : 'npm';
+const githubAssetUrl = `https://github.com/bakapiano/ccsm/releases/download/v${target}/bakapiano-ccsm-${target}.tgz`;
+const installSpec = updateSource === 'github' ? githubAssetUrl : `@bakapiano/ccsm@${target}`;
 
 const HELPER_PORT = 7779;
 const HOME = process.env.CCSM_HOME || path.join(os.homedir(), '.ccsm');
@@ -91,6 +96,7 @@ function writeLock() {
       pid: process.pid,
       startedAt: Date.now(),
       target,
+      source: updateSource,
       phase: phaseValue,
       helperPort: HELPER_PORT,
     }, null, 2));
@@ -307,7 +313,7 @@ h1 {
 <body>
 <div class="card">
   <h1>Upgrading ccsm</h1>
-  <p class="subtitle">target: <span class="mono">@bakapiano/ccsm@<span id="target"></span></span></p>
+  <p class="subtitle">source: <span class="mono" id="source"></span> · target: <span class="mono">v<span id="target"></span></span></p>
 
   <div id="phases">
     <div class="phase-row pending" data-phase="waiting-port">
@@ -339,6 +345,7 @@ h1 {
 <script>
 (function () {
   const targetEl = document.getElementById('target');
+  const sourceEl = document.getElementById('source');
   const logEl = document.getElementById('log');
   const bannerEl = document.getElementById('banner');
   const closeBtn = document.getElementById('close');
@@ -399,6 +406,7 @@ h1 {
   // if SSE is slow to push.
   fetch('/api/upgrade/status').then((r) => r.json()).then((s) => {
     targetEl.innerText = s.target || '';
+    sourceEl.innerText = s.source === 'github' ? 'GitHub Release' : 'npm';
     if (s.phase) setPhase(s.phase);
     if (s.errorMsg) showFailed(s.errorMsg);
     if (s.lines) s.lines.forEach(appendLine);
@@ -453,6 +461,7 @@ h1 {
 function buildStatus() {
   return {
     target,
+    source: updateSource,
     phase: phaseValue,
     startedAt,
     finishedAt,
@@ -521,8 +530,8 @@ httpServer.listen(HELPER_PORT, '127.0.0.1', () => {
 
 // ── Main upgrade flow ────────────────────────────────────────────────
 (async () => {
-  fileLog(`start · target=${target} oldPort=${oldPort} oldPid=${oldPid}${installPrefix ? ` prefix=${installPrefix}` : ''}${!doRespawn ? ' (no respawn)' : ''}`);
-  pushLine('info', `Upgrading ccsm to ${target}`);
+  fileLog(`start · source=${updateSource} target=${target} oldPort=${oldPort} oldPid=${oldPid}${installPrefix ? ` prefix=${installPrefix}` : ''}${!doRespawn ? ' (no respawn)' : ''}`);
+  pushLine('info', `Upgrading ccsm to ${target} from ${updateSource === 'github' ? 'GitHub Release' : 'npm'}`);
 
   setPhase('waiting-port');
   const deadline = Date.now() + 30_000;
@@ -535,7 +544,7 @@ httpServer.listen(HELPER_PORT, '127.0.0.1', () => {
   pushLine('info', `Old backend gone (port ${oldPort} free, pid ${oldPid} dead).`);
 
   setPhase('installing');
-  pushLine('info', `Running: npm i -g @bakapiano/ccsm@${target}${installPrefix ? ` --prefix=${installPrefix}` : ''}`);
+  pushLine('info', `Running: npm i -g ${installSpec}${installPrefix ? ` --prefix=${installPrefix}` : ''}`);
 
   // Extra settle: gracefulShutdown only waits for the server pid, but
   // node-pty grandchildren (winpty-agent / conpty) need a beat longer
@@ -544,13 +553,12 @@ httpServer.listen(HELPER_PORT, '127.0.0.1', () => {
   await sleep(2000);
 
   const isWin = process.platform === 'win32';
-  const arg = `@bakapiano/ccsm@${target}`;
   const npmArgs = ['i', '-g'];
   if (installPrefix) {
     try { fs.mkdirSync(installPrefix, { recursive: true }); } catch {}
     npmArgs.push(`--prefix=${installPrefix}`);
   }
-  npmArgs.push(arg);
+  npmArgs.push(installSpec);
 
   let exe, exeArgs;
   if (isWin) {

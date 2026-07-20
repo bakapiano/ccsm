@@ -1,9 +1,10 @@
 name: Draft GitHub Release on tag push
 
 # When you push a v*.*.* tag (typically from `npm version <patch|minor|major>`),
-# auto-create a draft GitHub Release with notes generated from the merged PRs
-# / commits since the last tag. You review the notes in the UI, edit if
-# needed, then hit Publish — which fires npm-publish.yml.
+# pack the exact npm tarball, attach it to a draft GitHub Release, and
+# generate notes from the merged PRs / commits since the last tag. The
+# tarball is both the GitHub update-source artifact and the input later
+# published to npm, so both channels ship identical package bytes.
 #
 # This decouples "I'm done bumping the version" (just push tag) from "I
 # want this on npm" (click Publish on the Release page). Safer than full
@@ -24,11 +25,29 @@ jobs:
         with:
           fetch-depth: 0   # gh release needs full history for --generate-notes
 
-      - name: Create draft release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pack npm tarball and create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match package version ${version}" >&2
+            exit 1
+          fi
+          mkdir -p dist
+          npm pack --ignore-scripts --pack-destination dist
+          asset="dist/bakapiano-ccsm-${version}.tgz"
+          test -f "$asset"
+          sha256sum "$asset" > "${asset}.sha256"
           gh release create "${GITHUB_REF_NAME}" \
+            "$asset" \
+            "${asset}.sha256" \
             --draft \
             --title "${GITHUB_REF_NAME}" \
+            --verify-tag \
             --generate-notes
