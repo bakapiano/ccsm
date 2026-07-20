@@ -24,6 +24,7 @@ export class TerminalInstance {
     this.inReplay = false;
     this.replayDepth = 0;
     this.isVisible = false;
+    this.followOutputOnReveal = true;
     this.lastLayoutDimensions = null;
     this.lastSentDimensions = null;
     this.pendingLayoutFrame = null;
@@ -120,10 +121,19 @@ export class TerminalInstance {
   setVisible(visible) {
     const nextVisible = !!visible;
     const didChange = this.isVisible !== nextVisible;
+    if (didChange && !nextVisible) {
+      // Remember the user's intent before the hidden layer can be resized or
+      // receive more output. Tabs that were following the prompt should still
+      // follow it when revealed; a user reading scrollback keeps their place.
+      this.followOutputOnReveal = this.xterm.isAtBottom();
+    }
     this.isVisible = nextVisible;
     this.host?.classList.toggle('active', nextVisible);
 
     if (nextVisible) {
+      if (didChange && this.followOutputOnReveal) {
+        this.xterm.scrollToBottom();
+      }
       this.resizeDebouncer.flush();
       this.scheduleLayout({ immediate: true, retries: true, forceRedraw: true });
       if (this.pendingThemeRefresh) {
@@ -436,6 +446,12 @@ export class TerminalInstance {
     this._beginReplay();
     this.xterm.write(data, () => {
       this._endReplay();
+      // A CLI can render enough ANSI output before the browser attaches that
+      // xterm finishes the replay with its viewport at line 0 even though the
+      // buffer cursor is thousands of lines later. Anchor the initial attach
+      // at the live prompt; the layout pass below then preserves that
+      // at-bottom state across its resize retries.
+      this.xterm.scrollToBottom();
       if (this.isVisible) {
         this.scheduleLayout({ immediate: true, retries: true, forceRedraw: true });
       }

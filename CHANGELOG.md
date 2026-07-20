@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.23
+
+### Fixes
+- Scroll resumed terminal output to the live prompt after replaying buffered PTY history into a newly attached browser.
+- Keep tabs that were following output pinned to the bottom when revealed while preserving intentionally scrolled-back reading positions.
+
 ## 0.22.22
 
 ### Features

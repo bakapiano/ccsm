@@ -177,6 +177,15 @@ export class XtermTerminal {
     try { this.raw.refresh(0, this.raw.rows - 1); } catch {}
   }
 
+  scrollToBottom() {
+    try { this.raw.scrollToBottom(); } catch {}
+  }
+
+  isAtBottom() {
+    const buffer = this.raw?.buffer?.active;
+    return !buffer || buffer.viewportY >= buffer.baseY;
+  }
+
   clearTextureAtlas() {
     try { this.raw.clearTextureAtlas?.(); } catch {}
   }
