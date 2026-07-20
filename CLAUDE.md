@@ -118,9 +118,10 @@ us (`<prefix>/ccsm.cmd` from `npm config get prefix`).
 
 ## In-app upgrade
 
-About page surfaces the installed version, polls
-`registry.npmjs.org/@bakapiano%2Fccsm/latest` (cached 30 min) for the
-latest published version, and offers an **Upgrade** button when newer.
+About page surfaces the installed version, runs
+`npm view --global @bakapiano/ccsm@latest version` (cached 30 min) so the
+check honors the user's global npm source, and offers an **Upgrade** button
+when newer.
 `POST /api/upgrade` spawns `npm i -g @bakapiano/ccsm@latest` detached,
 then on success spawns a fresh `ccsm` (also detached) and
 gracefulShutdowns. The OfflineBanner appears briefly; the router then
@@ -314,7 +315,7 @@ allows `https://bakapiano.github.io` only — never `*`.
 | GET | `/api/folders` · POST `/api/folders` · PUT/DELETE `/api/folders/:id` · POST `/api/folders/reorder` | folder CRUD |
 | GET | `/api/workspaces` | workspaces under workDir with repo clone status + in-use flag |
 | GET | `/api/browse` | directory browser for the Launch page workdir picker |
-| GET | `/api/version` | `{ current, latest, updateAvailable, fetchedAt, cached, error? }` (npm registry cached 30 min, `?refresh=1` to bust) |
+| GET | `/api/version` | `{ current, latest, updateAvailable, fetchedAt, cached, error? }` (global npm source cached 30 min, `?refresh=1` to bust) |
 | POST | `/api/upgrade` | body `{target?}` — `npm i -g @bakapiano/ccsm@<target>` then self-restart |
 | GET | `/api/capabilities` | `{ webTerminal: bool, ... }` for frontend feature gating |
 | GET | `/api/health` | `{ ok, pid, version, name }` — used by router probe + heartbeat |

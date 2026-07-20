@@ -1675,9 +1675,9 @@ app.post('/api/restart', asyncH(async (_req, res) => {
 
 // ---- version / upgrade ----
 // `/api/version` reports the installed version (= pkg.version) and, if
-// reachable, the latest published on the npm registry. The result is
-// cached for 30 minutes in memory so the AboutPage poll doesn't hit the
-// registry on every render.
+// reachable, the latest version visible through the user's global npm
+// configuration. The result is cached for 30 minutes in memory so the
+// AboutPage poll doesn't hit the registry on every render.
 //
 // `/api/upgrade` kicks off `npm i -g @bakapiano/ccsm@latest` as a
 // detached child. When the install completes, the child re-spawns `ccsm`
@@ -1686,26 +1686,69 @@ app.post('/api/restart', asyncH(async (_req, res) => {
 // covers the gap; the version router picks up the new version on the
 // next probe.
 const VERSION_CACHE_MS = 30 * 60_000;
+const VERSION_CHECK_TIMEOUT_MS = 10_000;
 let versionCache = null; // { latest, fetchedAt }
 let upgradeInFlight = false;
 
 async function fetchLatestFromNpm() {
-  // Node 18+ has a global fetch. Time out the registry call to avoid
-  // hanging the response when the user is offline / behind a captive
-  // portal.
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 4000);
-  try {
-    const r = await fetch('https://registry.npmjs.org/@bakapiano%2Fccsm/latest', {
-      headers: { 'Accept': 'application/json' },
-      signal: ctrl.signal,
+  // Ask npm instead of fetching registry.npmjs.org directly. This makes
+  // the check use the same user/global .npmrc, scoped registry, proxy and
+  // authentication settings as the subsequent `npm i -g` upgrade.
+  const fs = require('node:fs');
+  const { execFile } = require('node:child_process');
+  const npmArgs = [
+    'view',
+    '--global',
+    '@bakapiano/ccsm@latest',
+    'version',
+    '--json',
+    '--loglevel=error',
+  ];
+
+  // Invoke npm-cli.js directly when it is available. On Windows this
+  // avoids cmd.exe keeping the real npm child alive after our timeout.
+  const npmCliCandidates = [
+    /npm-cli\.js$/i.test(process.env.npm_execpath || '') ? process.env.npm_execpath : '',
+    path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  const npmCli = npmCliCandidates.find((candidate) => candidate && fs.existsSync(candidate));
+  const isWin = process.platform === 'win32';
+  const executable = npmCli
+    ? process.execPath
+    : (isWin ? (process.env.ComSpec || 'cmd.exe') : 'npm');
+  const args = npmCli
+    ? [npmCli, ...npmArgs]
+    : (isWin ? ['/d', '/s', '/c', 'npm', ...npmArgs] : npmArgs);
+
+  return new Promise((resolve, reject) => {
+    execFile(executable, args, {
+      cwd: os.homedir(),
+      encoding: 'utf8',
+      env: spawnEnv(),
+      maxBuffer: 256 * 1024,
+      timeout: VERSION_CHECK_TIMEOUT_MS,
+      windowsHide: true,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        if (error.killed || error.code === 'ETIMEDOUT') {
+          return reject(new Error(`npm view timed out after ${VERSION_CHECK_TIMEOUT_MS / 1000}s`));
+        }
+        const detail = String(stderr || error.message || '').trim();
+        return reject(new Error(detail ? `npm view failed: ${detail}` : 'npm view failed'));
+      }
+
+      const raw = String(stdout || '').trim();
+      let latest;
+      try {
+        latest = JSON.parse(raw);
+      } catch {
+        return reject(new Error('npm view returned an invalid response'));
+      }
+      if (Array.isArray(latest)) latest = latest[latest.length - 1];
+      if (!latest) return reject(new Error('npm view returned no version'));
+      resolve(String(latest));
     });
-    if (!r.ok) throw new Error(`registry HTTP ${r.status}`);
-    const j = await r.json();
-    return String(j.version || '');
-  } finally {
-    clearTimeout(t);
-  }
+  });
 }
 
 function cmpSemver(a, b) {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.20
+
+### Fixes
+- Check for ccsm updates through the user's global npm source instead of querying the public npm registry directly.
+
 ## 0.22.19
 
 ### Fixes
